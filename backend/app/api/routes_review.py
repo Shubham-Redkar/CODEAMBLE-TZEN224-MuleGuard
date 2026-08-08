@@ -159,8 +159,14 @@ async def get_preview(statement_id: int, db: Session = Depends(get_session)):
     ).all()
     col_map = {}
     if stmt.raw_headers:
-        # Build a human-readable {header_name: index} mapping for the frontend
-        col_map = {h: i for i, h in enumerate(stmt.raw_headers)}
+        from app.understanding.header_classifier import classify_columns
+        sample_rows = stmt.raw_rows[:50] if stmt.raw_rows else []
+        classified = classify_columns(stmt.raw_headers, sample_rows)
+        for idx, h in enumerate(stmt.raw_headers):
+            if idx in classified:
+                col_map[h] = classified[idx][0]
+            else:
+                col_map[h] = ""
     return PreviewOut(
         statement_id=stmt.id,
         original_filename=stmt.original_filename,
