@@ -25,7 +25,7 @@ export function TransactionTable({ rows, total, page, pageSize, onPageChange }: 
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm min-w-[650px]">
         <thead>
           <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase">
             <th className="px-3 py-2">Date</th>
@@ -43,9 +43,9 @@ export function TransactionTable({ rows, total, page, pageSize, onPageChange }: 
             <tr key={r.row_id} className="hover:bg-gray-50">
               <td className="px-3 py-2 whitespace-nowrap">{r.txn_date}</td>
               <td className="px-3 py-2 max-w-xs truncate" title={r.narration}>{r.narration}</td>
-              <td className="px-3 py-2 text-right text-red-600">{r.debit_amount?.toFixed(2) ?? ""}</td>
-              <td className="px-3 py-2 text-right text-green-600">{r.credit_amount?.toFixed(2) ?? ""}</td>
-              <td className="px-3 py-2 text-right">{r.balance_after?.toFixed(2) ?? ""}</td>
+              <td className="px-3 py-2 text-right text-red-600">{r.debit_amount != null && !isNaN(Number(r.debit_amount)) ? Number(r.debit_amount).toFixed(2) : ""}</td>
+              <td className="px-3 py-2 text-right text-green-600">{r.credit_amount != null && !isNaN(Number(r.credit_amount)) ? Number(r.credit_amount).toFixed(2) : ""}</td>
+              <td className="px-3 py-2 text-right">{r.balance_after != null && !isNaN(Number(r.balance_after)) ? Number(r.balance_after).toFixed(2) : ""}</td>
               <td className="px-3 py-2">{r.channel ?? ""}</td>
               <td className="px-3 py-2">{r.category ?? ""}</td>
               <td className="px-3 py-2">

@@ -2,22 +2,28 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from app.db.session import get_session
-from app.db.models import Statement, Transaction, EvidenceBundleRecord, Cycle, InvestigatorLabel
-from app.ingestion.file_router import dispatch_extraction
-from app.guardrails.ood_detector import (
-    compute_statement_likelihood,
-    classify_ood_tier,
+from app.db.models import (
+    Counterparty,
+    Cycle,
+    EvidenceBundleRecord,
+    InvestigatorLabel,
+    Statement,
+    Transaction,
 )
-from app.understanding.template_matcher import match_template
-from app.understanding.header_classifier import classify_columns
+from app.db.session import get_session
+from app.guardrails.ood_detector import (
+    classify_ood_tier,
+    compute_statement_likelihood,
+)
+from app.ingestion.file_router import dispatch_extraction
 from app.understanding.column_mapper import map_row_to_transaction
+from app.understanding.header_classifier import classify_columns
+from app.understanding.template_matcher import match_template
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,7 @@ else:
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls"}
+
 
 class DetectedColumnOut(BaseModel):
     index: int
@@ -55,18 +62,18 @@ class BatchUploadOut(BaseModel):
 
 class StatementSummaryOut(BaseModel):
     id: int
-    original_filename: Optional[str] = None
+    original_filename: str | None = None
     upload_ts: str
     status: str
-    ood_score: Optional[float] = None
-    ood_tier: Optional[str] = None
-    extraction_confidence: Optional[float] = None
-    reconciliation_rate: Optional[float] = None
-    transaction_count: Optional[int] = None
-    observed_start: Optional[str] = None
-    observed_end: Optional[str] = None
-    tier: Optional[str] = None
-    fused_score: Optional[float] = None
+    ood_score: float | None = None
+    ood_tier: str | None = None
+    extraction_confidence: float | None = None
+    reconciliation_rate: float | None = None
+    transaction_count: int | None = None
+    observed_start: str | None = None
+    observed_end: str | None = None
+    tier: str | None = None
+    fused_score: float | None = None
 
 
 @router.get("", response_model=list[StatementSummaryOut])
@@ -88,7 +95,11 @@ def list_statements(db: Session = Depends(get_session)):
             tier = final_dec.get("tier")
             fused_score = final_dec.get("fused_score")
 
-        ood_tier = classify_ood_tier(s.ood_score or 0.0, s.ood_signals or {}) if s.ood_score is not None else None
+        ood_tier = (
+            classify_ood_tier(s.ood_score or 0.0, s.ood_signals or {})
+            if s.ood_score is not None
+            else None
+        )
 
         summaries.append(
             StatementSummaryOut(
@@ -115,12 +126,19 @@ def delete_statement(statement_id: int, db: Session = Depends(get_session)):
     stmt = db.get(Statement, statement_id)
     if not stmt:
         raise HTTPException(status_code=404, detail="Statement not found")
-    
+
     # Delete related records
     db.query(Transaction).filter(Transaction.statement_id == statement_id).delete()
-    db.query(EvidenceBundleRecord).filter(EvidenceBundleRecord.statement_id == statement_id).delete()
+    db.query(EvidenceBundleRecord).filter(
+        EvidenceBundleRecord.statement_id == statement_id
+    ).delete()
     db.query(Cycle).filter(Cycle.statement_id == statement_id).delete()
-    db.query(InvestigatorLabel).filter(InvestigatorLabel.statement_id == statement_id).delete()
+    db.query(InvestigatorLabel).filter(
+        InvestigatorLabel.statement_id == statement_id
+    ).delete()
+    db.query(Counterparty).filter(
+        Counterparty.first_seen_statement_id == statement_id
+    ).delete()
     db.delete(stmt)
     db.commit()
     return {"status": "deleted", "statement_id": statement_id}
@@ -132,6 +150,7 @@ def purge_all_data(db: Session = Depends(get_session)):
     db.query(EvidenceBundleRecord).delete()
     db.query(Cycle).delete()
     db.query(InvestigatorLabel).delete()
+    db.query(Counterparty).delete()
     db.query(Statement).delete()
     db.commit()
     return {"status": "purged"}
@@ -148,7 +167,9 @@ async def upload_statements(
     for file in files:
         ext = Path(file.filename or "").suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
-            errors.append({"filename": file.filename, "error": f"Unsupported file type: {ext}"})
+            errors.append(
+                {"filename": file.filename, "error": f"Unsupported file type: {ext}"}
+            )
             continue
 
         try:
@@ -160,8 +181,10 @@ async def upload_statements(
 
             extracted = dispatch_extraction(dest)
             rows, header, ftype = extracted
-            if rows is None:
-                errors.append({"filename": file.filename, "error": f"Extraction failed — {ftype}"})
+            if rows is None or len(rows) == 0:
+                errors.append(
+                    {"filename": file.filename, "error": f"Extraction failed — {ftype}"}
+                )
                 continue
 
             if header is not None:
@@ -171,19 +194,23 @@ async def upload_statements(
                 detected_headers = rows[0] if rows else []
                 data_rows = rows[1:] if len(rows) > 1 else []
 
-            full_text = "\n".join("\t".join(r) for r in rows)
+            full_text = "\n".join(
+                "\t".join(r) for r in (data_rows[:100] if data_rows else [])
+            )
             ood_score, ood_signals = compute_statement_likelihood(
                 raw_rows=data_rows,
                 full_text=full_text,
                 num_rows=len(data_rows),
             )
             ood_tier = classify_ood_tier(ood_score, ood_signals)
-            
+
             if ood_tier == "hard_reject":
-                errors.append({
-                    "filename": file.filename, 
-                    "error": f"OOD Hard Reject: score {ood_score:.2f} too low. Not a bank statement."
-                })
+                errors.append(
+                    {
+                        "filename": file.filename,
+                        "error": f"OOD Hard Reject: score {ood_score:.2f} too low. Not a bank statement.",
+                    }
+                )
                 continue
 
             matched_template, match_score = match_template(detected_headers)
@@ -205,7 +232,7 @@ async def upload_statements(
                 ood_signals=ood_signals,
                 status="uploaded",
                 raw_headers=detected_headers,
-                raw_rows=data_rows[:500] if len(data_rows) > 500 else data_rows,
+                raw_rows=data_rows[:5000] if len(data_rows) > 5000 else data_rows,
             )
             db.add(statement)
             db.commit()
@@ -223,9 +250,15 @@ async def upload_statements(
                     value_date=canonical.value_date,
                     narration=canonical.narration,
                     reference_no=canonical.reference_no,
-                    debit_amount=float(canonical.debit_amount) if canonical.debit_amount else None,
-                    credit_amount=float(canonical.credit_amount) if canonical.credit_amount else None,
-                    balance_after=float(canonical.balance_after) if canonical.balance_after else None,
+                    debit_amount=float(canonical.debit_amount)
+                    if canonical.debit_amount
+                    else None,
+                    credit_amount=float(canonical.credit_amount)
+                    if canonical.credit_amount
+                    else None,
+                    balance_after=float(canonical.balance_after)
+                    if canonical.balance_after
+                    else None,
                     row_confidence=canonical.source_row_confidence,
                 )
                 db.add(txn)
@@ -233,7 +266,13 @@ async def upload_statements(
 
             statement.transaction_count = txn_count
             if data_rows:
-                dates = [t.txn_date for t in db.query(Transaction).filter(Transaction.statement_id == statement.id).all() if t.txn_date]
+                dates = [
+                    t.txn_date
+                    for t in db.query(Transaction)
+                    .filter(Transaction.statement_id == statement.id)
+                    .all()
+                    if t.txn_date
+                ]
                 if dates:
                     statement.observed_start = min(dates)
                     statement.observed_end = max(dates)
@@ -243,15 +282,17 @@ async def upload_statements(
                 DetectedColumnOut(index=idx, field=field, confidence=1.0)
                 for idx, field in col_map.items()
             ]
-            results.append(UploadResultOut(
-                statement_id=statement.id,
-                original_filename=file.filename,
-                ood_score=ood_score,
-                ood_tier=ood_tier,
-                ood_signals=ood_signals,
-                detected_columns=detected_cols,
-                transaction_count=txn_count,
-            ))
+            results.append(
+                UploadResultOut(
+                    statement_id=statement.id,
+                    original_filename=file.filename,
+                    ood_score=ood_score,
+                    ood_tier=ood_tier,
+                    ood_signals=ood_signals,
+                    detected_columns=detected_cols,
+                    transaction_count=txn_count,
+                )
+            )
         except Exception as exc:
             logger.exception("Failed to process %s", file.filename)
             errors.append({"filename": file.filename, "error": str(exc)})

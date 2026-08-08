@@ -67,19 +67,19 @@ export function UploadPage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Statement Upload & History</h1>
-        <p className="text-gray-500 text-sm">Upload PDF, CSV, or XLSX bank statements for local, deterministic mule analysis.</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">Statement Upload & History</h1>
+        <p className="text-gray-500 text-xs sm:text-sm">Upload PDF, CSV, or XLSX bank statements for local, deterministic mule analysis.</p>
       </div>
 
       {/* Upload Box */}
-      <div className="bg-white border rounded-xl p-6 shadow-sm">
+      <div className="bg-white border rounded-xl p-4 sm:p-6 shadow-sm">
         <div
           onDrop={onDrop}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
-          className={`border-2 border-dashed rounded-lg p-10 text-center transition-colors cursor-pointer ${
+          className={`border-2 border-dashed rounded-lg p-6 sm:p-10 text-center transition-colors cursor-pointer ${
             dragging ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-blue-400 bg-gray-50/50"
           }`}
           onClick={() => document.getElementById("file-input")?.click()}
@@ -92,9 +92,9 @@ export function UploadPage() {
             className="hidden"
             onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files || [])])}
           />
-          <Upload className="w-10 h-10 mx-auto text-blue-600 mb-3" />
-          <p className="text-base font-semibold text-gray-800 mb-1">Drag & drop bank statements here</p>
-          <p className="text-xs text-gray-400">Supported formats: PDF, CSV, XLSX (Air-gapped / Local only)</p>
+          <Upload className="w-8 h-8 sm:w-10 sm:h-10 mx-auto text-blue-600 mb-3" />
+          <p className="text-sm sm:text-base font-semibold text-gray-800 mb-1">Drag & drop bank statements here</p>
+          <p className="text-[11px] sm:text-xs text-gray-400">Supported formats: PDF, CSV, XLSX (Air-gapped / Local only)</p>
         </div>
 
         {files.length > 0 && (
@@ -103,12 +103,12 @@ export function UploadPage() {
             <div className="space-y-2">
               {files.map((f, i) => (
                 <div key={i} className="flex items-center justify-between bg-gray-50 border rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <File className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-medium text-gray-800">{f.name}</span>
-                    <span className="text-xs text-gray-400">({(f.size / 1024).toFixed(1)} KB)</span>
+                  <div className="flex items-center gap-2 truncate mr-2">
+                    <File className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="text-xs sm:text-sm font-medium text-gray-800 truncate">{f.name}</span>
+                    <span className="text-[10px] sm:text-xs text-gray-400 shrink-0">({(f.size / 1024).toFixed(1)} KB)</span>
                   </div>
-                  <button onClick={() => removeFile(i)} className="text-gray-400 hover:text-red-500">
+                  <button onClick={() => removeFile(i)} className="text-gray-400 hover:text-red-500 p-1">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -158,9 +158,9 @@ export function UploadPage() {
             )}
 
             {result.results.map((r, i) => (
-              <div key={i} className="bg-blue-50/60 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
+              <div key={i} className="bg-blue-50/60 border border-blue-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-gray-900 text-sm">Statement #{r.statement_id}: {r.original_filename}</span>
                     <span className="text-xs bg-green-100 text-green-800 font-semibold px-2 py-0.5 rounded">
                       OOD: {(r.ood_score * 100).toFixed(0)}%
@@ -170,7 +170,7 @@ export function UploadPage() {
                 </div>
                 <button
                   onClick={() => handleOpenStatement(r.statement_id, "review")}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1.5 shadow-sm"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1.5 shadow-sm self-start sm:self-auto"
                 >
                   Review Extraction <ArrowRight className="w-3.5 h-3.5" />
                 </button>
@@ -184,7 +184,7 @@ export function UploadPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Statements History ({statements.length})</h2>
+            <h2 className="text-base sm:text-lg font-bold text-gray-900">Statements History ({statements.length})</h2>
             <p className="text-xs text-gray-500">All uploaded statements are saved locally in SQLite. Click any statement to inspect.</p>
           </div>
         </div>
@@ -261,10 +261,10 @@ export function UploadPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
                     <button
                       onClick={() => handleOpenStatement(s.id, "review")}
-                      className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1 text-gray-700"
+                      className="px-2.5 sm:px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1 text-gray-700 transition-colors"
                       title="Extraction Column Review"
                     >
                       <FileText className="w-3.5 h-3.5" /> Review
@@ -272,7 +272,7 @@ export function UploadPage() {
 
                     <button
                       onClick={() => handleOpenStatement(s.id, "dashboard")}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 ${
+                      className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 transition-colors ${
                         hasAnalysis
                           ? "bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
                           : "border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100"
@@ -284,7 +284,7 @@ export function UploadPage() {
 
                     <button
                       onClick={() => handleOpenStatement(s.id, "graph")}
-                      className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1 text-gray-700"
+                      className="px-2.5 sm:px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1 text-gray-700 transition-colors"
                       title="Proof Graph"
                     >
                       <GitGraph className="w-3.5 h-3.5" /> Graph
@@ -292,7 +292,7 @@ export function UploadPage() {
 
                     <button
                       onClick={() => handleOpenStatement(s.id, "evidence")}
-                      className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1 text-gray-700"
+                      className="px-2.5 sm:px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1 text-gray-700 transition-colors"
                       title="Evidence Explorer"
                     >
                       <Search className="w-3.5 h-3.5" /> Evidence

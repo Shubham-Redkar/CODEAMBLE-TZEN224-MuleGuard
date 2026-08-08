@@ -112,22 +112,24 @@ export function ExtractionReviewPage() {
   const confidenceColor = confidenceLevel === "high" ? "text-green-600 bg-green-50 border-green-200" : confidenceLevel === "pending" ? "text-blue-600 bg-blue-50 border-blue-200" : confidenceLevel === "medium" ? "text-amber-600 bg-amber-50 border-amber-200" : "text-red-600 bg-red-50 border-red-200";
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Extraction Review</h1>
-        <p className="text-gray-500 text-sm">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Extraction Review</h1>
+        <p className="text-gray-500 text-xs sm:text-sm mt-0.5">
           Review detected column mapping for Statement #{effectiveId} before running detection rules.
         </p>
       </div>
 
       <div className={`rounded-xl border p-4 shadow-sm ${confidenceColor}`}>
-        <div className="flex items-center gap-2 mb-1">
-          {confidenceLevel === "high" ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-          <span className="font-semibold text-sm">
-            Extraction Confidence: {conf == null ? "Ready for Analysis" : `${(conf * 100).toFixed(1)}%`}
-          </span>
+        <div className="flex flex-wrap items-center gap-2 mb-1">
+          <div className="flex items-center gap-2">
+            {confidenceLevel === "high" ? <CheckCircle className="w-5 h-5 shrink-0" /> : <AlertCircle className="w-5 h-5 shrink-0" />}
+            <span className="font-semibold text-sm">
+              Extraction Confidence: {conf == null ? "Ready for Analysis" : `${(conf * 100).toFixed(1)}%`}
+            </span>
+          </div>
           {preview.reconciliation_rate != null && (
-            <span className="text-xs ml-4">
+            <span className="text-xs sm:ml-4 bg-white/60 px-2 py-0.5 rounded font-medium">
               Running Balance Reconciliation: {(preview.reconciliation_rate * 100).toFixed(1)}%
             </span>
           )}

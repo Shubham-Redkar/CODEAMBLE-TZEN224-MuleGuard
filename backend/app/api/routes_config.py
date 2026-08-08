@@ -42,7 +42,7 @@ async def update_thresholds(update: ConfigUpdate, db: Session = Depends(get_sess
     
     audit_log = ConfigAuditLog(
         changed_by="user",
-        changed_ts=datetime.utcnow(),
+        change_ts=datetime.utcnow(),
         config_key=update.key,
         old_value=str(old_value) if old_value is not None else None,
         new_value=str(update.value)

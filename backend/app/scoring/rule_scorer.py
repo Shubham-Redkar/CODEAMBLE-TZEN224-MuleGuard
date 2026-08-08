@@ -19,14 +19,8 @@ def _evaluate_condition(condition_str: str, feature_values: dict[str, Any]) -> b
 
 
 def _evaluate_single_condition(condition_str: str, feature_values: dict[str, Any]) -> bool:
-    if " > " in condition_str:
-        field, threshold_str = condition_str.split(" > ", 1)
-        val = feature_values.get(field.strip())
-        if val is None:
-            return False
-        threshold = _resolve_threshold(threshold_str.strip(), feature_values)
-        return float(val) > float(threshold)
-
+    # Check multi-character operators BEFORE single-character ones
+    # to avoid ">=" being falsely split on ">"
     if " >= " in condition_str:
         field, threshold_str = condition_str.split(" >= ", 1)
         val = feature_values.get(field.strip())
@@ -35,14 +29,6 @@ def _evaluate_single_condition(condition_str: str, feature_values: dict[str, Any
         threshold = _resolve_threshold(threshold_str.strip(), feature_values)
         return float(val) >= float(threshold)
 
-    if " < " in condition_str:
-        field, threshold_str = condition_str.split(" < ", 1)
-        val = feature_values.get(field.strip())
-        if val is None:
-            return False
-        threshold = _resolve_threshold(threshold_str.strip(), feature_values)
-        return float(val) < float(threshold)
-
     if " <= " in condition_str:
         field, threshold_str = condition_str.split(" <= ", 1)
         val = feature_values.get(field.strip())
@@ -50,6 +36,22 @@ def _evaluate_single_condition(condition_str: str, feature_values: dict[str, Any
             return False
         threshold = _resolve_threshold(threshold_str.strip(), feature_values)
         return float(val) <= float(threshold)
+
+    if " > " in condition_str:
+        field, threshold_str = condition_str.split(" > ", 1)
+        val = feature_values.get(field.strip())
+        if val is None:
+            return False
+        threshold = _resolve_threshold(threshold_str.strip(), feature_values)
+        return float(val) > float(threshold)
+
+    if " < " in condition_str:
+        field, threshold_str = condition_str.split(" < ", 1)
+        val = feature_values.get(field.strip())
+        if val is None:
+            return False
+        threshold = _resolve_threshold(threshold_str.strip(), feature_values)
+        return float(val) < float(threshold)
 
     if " == " in condition_str:
         field, threshold_str = condition_str.split(" == ", 1)

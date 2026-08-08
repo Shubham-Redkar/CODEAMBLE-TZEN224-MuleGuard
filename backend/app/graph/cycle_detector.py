@@ -49,7 +49,7 @@ def _score_cycle(cycle: list[str], G: nx.MultiDiGraph) -> dict[str, Any]:
     if amounts:
         import statistics
         mean_amt = statistics.mean(amounts)
-        cv = statistics.stdev(amounts) / mean_amt if mean_amt > 0 else 0
+        cv = statistics.stdev(amounts) / mean_amt if mean_amt > 0 and len(amounts) > 1 else 0
         amount_conservation = max(0.0, 1.0 - cv)
     else:
         amount_conservation = 0.0
@@ -60,9 +60,15 @@ def _score_cycle(cycle: list[str], G: nx.MultiDiGraph) -> dict[str, Any]:
     normalized_velocity = min(velocity_compression / 10, 1.0)
     normalized_inverse_hops = 1.0 / max(hop_count, 1)
 
+    # Cycle recurrence: ratio of total parallel (multi) edges to hop_count.
+    # Repeated transactions between the same parties signal a recurring layering pattern.
+    total_edge_count = len(amounts)
+    cycle_recurrence = min(total_edge_count / max(hop_count, 1), 1.0) if hop_count > 0 else 0.0
+
     cycle_risk = (
         w_conservation * amount_conservation
         + w_velocity * normalized_velocity
+        + w_recurrence * cycle_recurrence
         + w_inverse_hops * normalized_inverse_hops
     )
 
@@ -71,6 +77,7 @@ def _score_cycle(cycle: list[str], G: nx.MultiDiGraph) -> dict[str, Any]:
         "amount_conservation_ratio": round(amount_conservation, 4),
         "cycle_span_days": round(cycle_span_days, 2),
         "velocity_compression": round(velocity_compression, 4),
+        "cycle_recurrence": round(cycle_recurrence, 4),
         "cycle_risk_score": round(cycle_risk, 4),
         "contributing_row_ids": row_ids,
     }

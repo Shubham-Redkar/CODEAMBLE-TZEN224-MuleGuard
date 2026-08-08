@@ -1,11 +1,11 @@
 type RuleTrigger = {
   id: string;
-  description: string;
-  condition: string;
-  computed_value: number;
-  threshold: number;
+  description?: string;
+  condition?: string;
+  computed_value?: number | null;
+  threshold?: number | null;
   points: number;
-  contributing_row_ids: string[];
+  contributing_row_ids?: string[];
 };
 
 type RuleTriggerListProps = {
@@ -13,11 +13,11 @@ type RuleTriggerListProps = {
 };
 
 export function RuleTriggerList({ rules }: RuleTriggerListProps) {
-  if (rules.length === 0) {
+  if (!rules || rules.length === 0) {
     return <div className="text-sm text-gray-400 italic">No rules triggered.</div>;
   }
 
-  const sorted = [...rules].sort((a, b) => b.points - a.points);
+  const sorted = [...rules].sort((a, b) => (b.points || 0) - (a.points || 0));
 
   return (
     <div className="space-y-2">
@@ -27,12 +27,21 @@ export function RuleTriggerList({ rules }: RuleTriggerListProps) {
             <span className="font-mono text-xs font-bold text-red-700">{r.id}</span>
             <span className="text-xs font-bold text-red-600">+{r.points} pts</span>
           </div>
-          <p className="text-sm mt-1">{r.description}</p>
-          <div className="flex gap-4 mt-1 text-xs text-gray-500">
-            <span>Value: {r.computed_value.toFixed(3)}</span>
-            <span>Threshold: {r.threshold}</span>
+          {r.description && <p className="text-sm mt-1 text-gray-800">{r.description}</p>}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-gray-600">
+            {r.computed_value != null && (
+              <span>
+                Value: <strong>{typeof r.computed_value === "number" ? r.computed_value.toFixed(3) : String(r.computed_value)}</strong>
+              </span>
+            )}
+            {r.threshold != null && <span>Threshold: <strong>{r.threshold}</strong></span>}
+            {r.condition && (
+              <span>
+                Condition: <code className="bg-red-100/70 px-1 py-0.5 rounded font-mono text-[11px]">{r.condition}</code>
+              </span>
+            )}
           </div>
-          {r.contributing_row_ids.length > 0 && (
+          {r.contributing_row_ids && r.contributing_row_ids.length > 0 && (
             <div className="mt-1 text-xs text-gray-400">
               {r.contributing_row_ids.length} contributing transaction(s)
             </div>

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.db.session import get_session
-from app.db.models import Statement, Transaction, Cycle
+from app.db.models import Statement, Transaction, Cycle, EvidenceBundleRecord, Counterparty
 from app.graph.graph_builder import build_transaction_graph, graph_to_json
 from app.graph.cycle_detector import detect_cycles
 from app.graph.centrality import compute_centrality_metrics
@@ -27,6 +27,8 @@ class GraphOut(BaseModel):
     edges: list[dict[str, Any]] = []
     cycles: list[dict[str, Any]] = []
     centrality: dict[str, dict[str, float]] = {}
+    mule_row_ids: list[str] = []
+    mule_nodes: list[str] = []
 
 
 def _load_statement_or_404(db: Session, statement_id: int) -> Statement:
@@ -63,17 +65,50 @@ async def get_graph(statement_id: int, db: Session = Depends(get_session)):
     if not txns:
         return GraphOut()
 
+    all_cps = db.exec(select(Counterparty)).all()
+    node_labels = {str(cp.id): cp.canonical_name for cp in all_cps}
+
     df = _transactions_to_df(txns)
-    G = build_transaction_graph(df, subject_account_id=f"ACCT_{statement_id}")
+    G = build_transaction_graph(df, subject_account_id=f"ACCT_{statement_id}", node_labels=node_labels)
     graph_data = graph_to_json(G)
     cycles = detect_cycles(G)
     centrality = compute_centrality_metrics(G)
+
+    mule_row_ids_set = set()
+    mule_nodes_set = set()
+    for c in cycles:
+        for r_id in c.get("contributing_row_ids", []):
+            if r_id:
+                mule_row_ids_set.add(str(r_id))
+        for n in c.get("nodes", []):
+            if n:
+                mule_nodes_set.add(str(n))
+
+    ev_rec = db.exec(
+        select(EvidenceBundleRecord)
+        .where(EvidenceBundleRecord.statement_id == statement_id)
+        .order_by(EvidenceBundleRecord.created_ts.desc())
+    ).first()
+    if ev_rec and ev_rec.json_blob:
+        for r in ev_rec.json_blob.get("triggered_rules", []):
+            for r_id in r.get("contributing_row_ids", []):
+                if r_id:
+                    mule_row_ids_set.add(str(r_id))
+        for c in ev_rec.json_blob.get("cycles_detected", []):
+            for r_id in c.get("contributing_row_ids", []):
+                if r_id:
+                    mule_row_ids_set.add(str(r_id))
+            for n in c.get("nodes", []):
+                if n:
+                    mule_nodes_set.add(str(n))
 
     return GraphOut(
         nodes=graph_data.get("nodes", []),
         edges=graph_data.get("edges", []),
         cycles=cycles,
         centrality=centrality,
+        mule_row_ids=list(mule_row_ids_set),
+        mule_nodes=list(mule_nodes_set),
     )
 
 
@@ -95,11 +130,24 @@ async def batch_merge(body: BatchMergeIn, db: Session = Depends(get_session)):
     if not all_txns:
         return GraphOut()
 
+    all_cps = db.exec(select(Counterparty)).all()
+    node_labels = {str(cp.id): cp.canonical_name for cp in all_cps}
+
     df = _transactions_to_df(all_txns)
-    G = build_transaction_graph(df, subject_account_id="ACCT_MERGED")
+    G = build_transaction_graph(df, subject_account_id="ACCT_MERGED", node_labels=node_labels)
     graph_data = graph_to_json(G)
     cycles = detect_cycles(G)
     centrality = compute_centrality_metrics(G)
+
+    mule_row_ids_set = set()
+    mule_nodes_set = set()
+    for c in cycles:
+        for r_id in c.get("contributing_row_ids", []):
+            if r_id:
+                mule_row_ids_set.add(str(r_id))
+        for n in c.get("nodes", []):
+            if n:
+                mule_nodes_set.add(str(n))
 
     for c in cycles:
         cycle_rec = Cycle(
@@ -118,4 +166,6 @@ async def batch_merge(body: BatchMergeIn, db: Session = Depends(get_session)):
         edges=graph_data.get("edges", []),
         cycles=cycles,
         centrality=centrality,
+        mule_row_ids=list(mule_row_ids_set),
+        mule_nodes=list(mule_nodes_set),
     )

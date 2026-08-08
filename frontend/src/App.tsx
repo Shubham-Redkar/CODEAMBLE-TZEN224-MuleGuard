@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { Upload, FileSearch, LayoutDashboard, Search, GitGraph, Shield, Trash2, ChevronDown } from "lucide-react";
+import { Upload, FileSearch, LayoutDashboard, Search, GitGraph, Shield, Trash2, ChevronDown, Menu, X } from "lucide-react";
 import { UploadPage } from "./pages/UploadPage";
 import { ExtractionReviewPage } from "./pages/ExtractionReviewPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -11,6 +12,21 @@ function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { statements, currentId, currentStatement, setCurrentId, purgeAll } = useStatement();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close mobile sidebar on page navigation
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  // Close mobile sidebar on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const navItems = [
     { to: "/", label: "Upload & History", icon: Upload, exact: true },
@@ -43,7 +59,7 @@ function AppLayout() {
   const handleSelectStatement = (idStr: string) => {
     const numId = Number(idStr);
     setCurrentId(numId);
-    // If user is on a specific view page, redirect to that view for the newly selected statement
+    setMobileMenuOpen(false);
     const path = location.pathname;
     if (path.startsWith("/review")) {
       navigate(`/review/${numId}`);
@@ -59,19 +75,75 @@ function AppLayout() {
   const handlePurgeAll = async () => {
     if (window.confirm("Are you sure you want to purge all statements and database records?")) {
       await purgeAll();
+      setMobileMenuOpen(false);
       navigate("/");
     }
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <Shield className="w-6 h-6 text-blue-600" />
-            <span className="font-bold text-lg text-gray-900">MuleGuard</span>
+    <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50 text-gray-900">
+      {/* Mobile Top App Bar */}
+      <header className="lg:hidden bg-white border-b border-gray-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Shield className="w-5 h-5 text-blue-600" />
+          <span className="font-bold text-base text-gray-900">MuleGuard</span>
+          <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-mono">Local</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {currentStatement && (
+            <span
+              className={`px-2 py-0.5 rounded text-[10px] font-bold truncate max-w-[120px] ${
+                currentStatement.tier === "CONFIRMED_SUSPICIOUS"
+                  ? "bg-red-100 text-red-700"
+                  : currentStatement.tier === "LIKELY_LEGITIMATE"
+                  ? "bg-green-100 text-green-700"
+                  : currentStatement.tier === "REVIEW_REQUIRED"
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              #{currentStatement.id}
+            </span>
+          )}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-1.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none"
+            aria-label="Toggle navigation menu"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile Backdrop Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden transition-opacity"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar (Desktop Static & Mobile Sliding Drawer) */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col shrink-0 transform transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          mobileMenuOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+        }`}
+      >
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Shield className="w-6 h-6 text-blue-600" />
+              <span className="font-bold text-lg text-gray-900">MuleGuard</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">Local v0.1.0 · Offline</p>
           </div>
-          <p className="text-xs text-gray-400 mt-1">Local v0.1.0 · Offline</p>
+          <button
+            onClick={() => setMobileMenuOpen(false)}
+            className="lg:hidden p-1 text-gray-400 hover:text-gray-600 rounded-md"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Active Statement Selector in Sidebar */}
@@ -105,12 +177,12 @@ function AppLayout() {
           )}
 
           {currentStatement && (
-            <div className="mt-2 text-[11px] text-gray-500 flex items-center justify-between">
-              <span className="truncate max-w-[130px]" title={currentStatement.original_filename || ""}>
+            <div className="mt-2 text-[11px] text-gray-500 flex items-center justify-between gap-1">
+              <span className="truncate flex-1" title={currentStatement.original_filename || ""}>
                 {currentStatement.original_filename}
               </span>
               <span
-                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                   currentStatement.tier === "CONFIRMED_SUSPICIOUS"
                     ? "bg-red-100 text-red-700"
                     : currentStatement.tier === "LIKELY_LEGITIMATE"
@@ -126,7 +198,7 @@ function AppLayout() {
           )}
         </div>
 
-        <nav className="flex-1 p-2 space-y-1">
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon, exact, activePath }) => {
             const isItemActive = exact
               ? location.pathname === "/"
@@ -138,14 +210,15 @@ function AppLayout() {
               <NavLink
                 key={label}
                 to={to}
+                onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isItemActive
                     ? "bg-blue-50 text-blue-700"
                     : "text-gray-600 hover:bg-gray-100"
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span>{label}</span>
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{label}</span>
               </NavLink>
             );
           })}
@@ -166,7 +239,8 @@ function AppLayout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto">
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-x-hidden overflow-y-auto min-w-0">
         <Routes>
           <Route path="/" element={<UploadPage />} />
           <Route path="/review" element={<ExtractionReviewPage />} />

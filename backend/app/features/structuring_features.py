@@ -44,14 +44,19 @@ def round_number_ratio(df: pd.DataFrame) -> tuple[float | None, str, str]:
         return 0.0, "fraction of txns that are round multiples", "Round-number ratio"
 
     round_count = 0
+    nonzero_count = 0
     for a in amounts:
         val = float(a)
-        for m in moduli:
-            if val > 0 and abs(val % m) < 0.01:
-                round_count += 1
-                break
+        if val > 0:
+            nonzero_count += 1
+            for m in moduli:
+                if abs(val % m) < 0.01:
+                    round_count += 1
+                    break
 
-    return float(round_count / len(amounts)), "fraction of txns that are round multiples", "Round-number ratio"
+    if nonzero_count == 0:
+        return 0.0, "fraction of txns that are round multiples", "Round-number ratio"
+    return float(round_count / nonzero_count), "fraction of txns that are round multiples", "Round-number ratio"
 
 
 def benford_deviation_score(df: pd.DataFrame) -> tuple[float | None, str, str]:
