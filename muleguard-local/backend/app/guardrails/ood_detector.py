@@ -7,7 +7,11 @@ from app.config_loader import load_config
 
 
 def _try_parse_date(val: str) -> bool:
-    fmt_candidates = ["%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%Y", "%Y%m%d", "%d.%m.%Y"]
+    fmt_candidates = [
+        "%d %b %Y", "%d-%b-%Y", "%d %B %Y", "%d-%B-%Y", "%b %d, %Y", "%b %d %Y",
+        "%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%Y", "%Y%m%d",
+        "%d.%m.%Y", "%Y/%m/%d", "%d %b %y"
+    ]
     for fmt in fmt_candidates:
         try:
             datetime.strptime(val.strip(), fmt)
@@ -18,7 +22,7 @@ def _try_parse_date(val: str) -> bool:
 
 
 def _is_numeric(val: str) -> bool:
-    cleaned = val.strip().replace(",", "").replace("₹", "").replace("$", "").replace(" ", "")
+    cleaned = val.strip().replace(",", "").replace("₹", "").replace("$", "").replace("Rs.", "").replace("INR", "").replace("+", "").replace("-", "").replace(" ", "")
     try:
         float(cleaned)
         return True

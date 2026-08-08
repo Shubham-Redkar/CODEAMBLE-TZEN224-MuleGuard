@@ -61,8 +61,8 @@ def dispatch_extraction(file_path: str | Path) -> tuple[Optional[list[list[str]]
 
     if ftype == "pdf":
         from app.ingestion.pdf_extractor import extract_pdf
-        rows = extract_pdf(file_path)
-        return rows, None, "pdf"
+        rows, header, sub_type = extract_pdf(file_path)
+        return rows, header, "pdf"
     elif ftype == "csv":
         from app.ingestion.csv_extractor import extract_csv_rows
         data, header = extract_csv_rows(file_path)

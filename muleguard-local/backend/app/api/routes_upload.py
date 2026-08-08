@@ -162,7 +162,7 @@ async def upload_statements(
 
             extracted = dispatch_extraction(dest)
             rows, header, ftype = extracted
-            if rows is None:
+            if rows is None or len(rows) == 0:
                 errors.append({"filename": file.filename, "error": f"Extraction failed — {ftype}"})
                 continue
 
@@ -173,7 +173,7 @@ async def upload_statements(
                 detected_headers = rows[0] if rows else []
                 data_rows = rows[1:] if len(rows) > 1 else []
 
-            full_text = "\n".join("\t".join(r) for r in rows)
+            full_text = "\n".join("\t".join(r) for r in (data_rows[:100] if data_rows else []))
             ood_score, ood_signals = compute_statement_likelihood(
                 raw_rows=data_rows,
                 full_text=full_text,
@@ -207,7 +207,7 @@ async def upload_statements(
                 ood_signals=ood_signals,
                 status="uploaded",
                 raw_headers=detected_headers,
-                raw_rows=data_rows[:500] if len(data_rows) > 500 else data_rows,
+                raw_rows=data_rows[:5000] if len(data_rows) > 5000 else data_rows,
             )
             db.add(statement)
             db.commit()
