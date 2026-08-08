@@ -1,62 +1,81 @@
 import logging
-from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.db.session import get_session
-from app.db.models import Statement, Transaction, Counterparty, EvidenceBundleRecord, Cycle
-from app.understanding.canonical_schema import CanonicalTransaction
-from app.understanding.header_classifier import classify_columns
-from app.understanding.column_mapper import map_row_to_transaction
-from app.validation.reconciliation import reconcile_transactions
-from app.validation.quality_score import compute_row_confidence, classify_extraction_confidence
-from app.validation.manual_mapping_api import save_user_template
-from app.categorization.rule_engine import infer_channel, assign_category
 from app.categorization.counterparty_extractor import extract_counterparty
+from app.categorization.rule_engine import assign_category, infer_channel
+from app.db.models import (
+    Counterparty,
+    Cycle,
+    EvidenceBundleRecord,
+    Statement,
+    Transaction,
+)
+from app.db.session import get_session
+from app.evidence.evidence_bundle import (
+    assemble_evidence_bundle,
+    evidence_bundle_to_json,
+)
 from app.features.feature_registry import compute_all_features
-from app.graph.graph_builder import build_transaction_graph, graph_to_json
 from app.graph.cycle_detector import detect_cycles
-from app.scoring.rule_scorer import evaluate_rules
-from app.scoring.anomaly_scorer import compute_mad_anomaly, compute_isolation_forest_anomaly
-from app.scoring.fusion import fuse_scores
+from app.graph.graph_builder import build_transaction_graph, graph_to_json
+from app.scoring.anomaly_scorer import (
+    compute_isolation_forest_anomaly,
+    compute_mad_anomaly,
+)
 from app.scoring.decision_policy import decide_tier
-from app.evidence.evidence_bundle import assemble_evidence_bundle, evidence_bundle_to_json
+from app.scoring.fusion import fuse_scores
+from app.scoring.rule_scorer import evaluate_rules
+from app.scoring.supervised_scorer import SupervisedScorer
+from app.understanding.canonical_schema import CanonicalTransaction
+from app.understanding.column_mapper import map_row_to_transaction
+from app.validation.manual_mapping_api import save_user_template
+from app.validation.quality_score import (
+    classify_extraction_confidence,
+    compute_row_confidence,
+)
+from app.validation.reconciliation import reconcile_transactions
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Loaded once at import time (reads app/ml/artifacts/*). If no model has
+# been trained yet, `supervised_scorer.available` is False and scoring
+# below transparently falls back to rule_score + anomaly_score only.
+supervised_scorer = SupervisedScorer()
+
 
 class MappingOverrideIn(BaseModel):
-    column_mapping: dict[str, Any]
+    column_mapping: dict[int, str]
     save_as_template: bool = False
-    headers: Optional[list[str]] = None
-    raw_rows: Optional[list[list[str]]] = None
+    headers: list[str] | None = None
+    raw_rows: list[list[str]] | None = None
 
 
 class MappingOut(BaseModel):
     statement_id: int
-    column_mapping: dict[str, Any]
+    column_mapping: dict[str, int]
     transaction_count: int
     message: str
 
 
 class PreviewOut(BaseModel):
     statement_id: int
-    original_filename: Optional[str]
+    original_filename: str | None
     status: str
-    ood_score: Optional[float]
-    ood_signals: Optional[dict]
-    reconciliation_rate: Optional[float]
-    extraction_confidence: Optional[float]
-    transaction_count: Optional[int]
-    observed_start: Optional[str]
-    observed_end: Optional[str]
+    ood_score: float | None
+    ood_signals: dict | None
+    reconciliation_rate: float | None
+    extraction_confidence: float | None
+    transaction_count: int | None
+    observed_start: str | None
+    observed_end: str | None
     detected_column_mapping: dict[str, Any]
     transactions: list[dict[str, Any]]
 
@@ -77,43 +96,55 @@ class ConfirmOut(BaseModel):
 def _load_statement_or_404(db: Session, statement_id: int) -> Statement:
     stmt = db.get(Statement, statement_id)
     if stmt is None:
-        raise HTTPException(status_code=404, detail=f"Statement {statement_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Statement {statement_id} not found"
+        )
     return stmt
 
 
 def _transactions_to_canonical(txns: list[Transaction]) -> list[CanonicalTransaction]:
     result: list[CanonicalTransaction] = []
     for t in txns:
-        result.append(CanonicalTransaction(
-            row_id=t.row_id,
-            txn_date=t.txn_date,
-            value_date=t.value_date,
-            narration=t.narration or "",
-            reference_no=t.reference_no,
-            debit_amount=Decimal(str(t.debit_amount)) if t.debit_amount is not None else None,
-            credit_amount=Decimal(str(t.credit_amount)) if t.credit_amount is not None else None,
-            balance_after=Decimal(str(t.balance_after)) if t.balance_after is not None else None,
-            channel=t.channel,
-            source_row_confidence=t.row_confidence,
-        ))
+        result.append(
+            CanonicalTransaction(
+                row_id=t.row_id,
+                txn_date=t.txn_date,
+                value_date=t.value_date,
+                narration=t.narration or "",
+                reference_no=t.reference_no,
+                debit_amount=Decimal(str(t.debit_amount))
+                if t.debit_amount is not None
+                else None,
+                credit_amount=Decimal(str(t.credit_amount))
+                if t.credit_amount is not None
+                else None,
+                balance_after=Decimal(str(t.balance_after))
+                if t.balance_after is not None
+                else None,
+                channel=t.channel,
+                source_row_confidence=t.row_confidence,
+            )
+        )
     return result
 
 
 def _transactions_to_df(txns: list[Transaction]) -> pd.DataFrame:
     records = []
     for t in txns:
-        records.append({
-            "row_id": t.row_id,
-            "txn_date": t.txn_date,
-            "value_date": t.value_date,
-            "narration": t.narration or "",
-            "reference_no": t.reference_no,
-            "debit_amount": float(t.debit_amount) if t.debit_amount else 0.0,
-            "credit_amount": float(t.credit_amount) if t.credit_amount else 0.0,
-            "balance_after": float(t.balance_after) if t.balance_after else None,
-            "channel": t.channel or "",
-            "counterparty_id": t.counterparty_id or "UNKNOWN",
-        })
+        records.append(
+            {
+                "row_id": t.row_id,
+                "txn_date": t.txn_date,
+                "value_date": t.value_date,
+                "narration": t.narration or "",
+                "reference_no": t.reference_no,
+                "debit_amount": float(t.debit_amount) if t.debit_amount else 0.0,
+                "credit_amount": float(t.credit_amount) if t.credit_amount else 0.0,
+                "balance_after": float(t.balance_after) if t.balance_after else None,
+                "channel": t.channel or "",
+                "counterparty_id": t.counterparty_id or "UNKNOWN",
+            }
+        )
     return pd.DataFrame(records)
 
 
@@ -125,10 +156,8 @@ async def get_preview(statement_id: int, db: Session = Depends(get_session)):
     ).all()
     col_map = {}
     if stmt.raw_headers:
-        sample_rows = stmt.raw_rows[:50] if stmt.raw_rows else []
-        classified = classify_columns(stmt.raw_headers, sample_rows)
-        idx_to_field = {idx: field for idx, (field, _) in classified.items() if idx < len(stmt.raw_headers)}
-        col_map = {h: idx_to_field.get(i, "") for i, h in enumerate(stmt.raw_headers)}
+        # Build a human-readable {header_name: index} mapping for the frontend
+        col_map = {h: i for i, h in enumerate(stmt.raw_headers)}
     return PreviewOut(
         statement_id=stmt.id,
         original_filename=stmt.original_filename,
@@ -180,16 +209,6 @@ async def update_mapping(
     new_txn_count = stmt.transaction_count or 0
     message = "Mapping override saved"
 
-    # Normalize column mapping into integer index -> canonical field
-    int_col_map: dict[int, str] = {}
-    for k, v in body.column_mapping.items():
-        if not v:
-            continue
-        if str(k).isdigit():
-            int_col_map[int(k)] = str(v)
-        elif stmt.raw_headers and str(k) in stmt.raw_headers:
-            int_col_map[stmt.raw_headers.index(str(k))] = str(v)
-
     raw_rows = body.raw_rows or (stmt.raw_rows if stmt.raw_rows else [])
     if raw_rows:
         existing = db.exec(
@@ -201,7 +220,9 @@ async def update_mapping(
 
         new_txn_count = 0
         for row_idx, row in enumerate(raw_rows):
-            canonical = map_row_to_transaction(row, int_col_map, statement_id, row_idx)
+            canonical = map_row_to_transaction(
+                row, body.column_mapping, statement_id, row_idx
+            )
             if canonical is None:
                 continue
             txn = Transaction(
@@ -211,9 +232,15 @@ async def update_mapping(
                 value_date=canonical.value_date,
                 narration=canonical.narration,
                 reference_no=canonical.reference_no,
-                debit_amount=float(canonical.debit_amount) if canonical.debit_amount else None,
-                credit_amount=float(canonical.credit_amount) if canonical.credit_amount else None,
-                balance_after=float(canonical.balance_after) if canonical.balance_after else None,
+                debit_amount=float(canonical.debit_amount)
+                if canonical.debit_amount
+                else None,
+                credit_amount=float(canonical.credit_amount)
+                if canonical.credit_amount
+                else None,
+                balance_after=float(canonical.balance_after)
+                if canonical.balance_after
+                else None,
                 row_confidence=canonical.source_row_confidence,
             )
             db.add(txn)
@@ -236,7 +263,9 @@ async def update_mapping(
 async def confirm_extraction(statement_id: int, db: Session = Depends(get_session)):
     stmt = _load_statement_or_404(db, statement_id)
     txns = db.exec(
-        select(Transaction).where(Transaction.statement_id == statement_id).order_by(Transaction.txn_date)
+        select(Transaction)
+        .where(Transaction.statement_id == statement_id)
+        .order_by(Transaction.txn_date)
     ).all()
     if not txns:
         raise HTTPException(status_code=400, detail="No transactions to confirm")
@@ -248,7 +277,9 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
 
     for i, txn in enumerate(txns):
         txn.is_reconciled = reconciled_flags[i] if i < len(reconciled_flags) else True
-        txn.row_confidence = compute_row_confidence(canonical_list[i], txn.is_reconciled)
+        txn.row_confidence = compute_row_confidence(
+            canonical_list[i], txn.is_reconciled
+        )
 
     extraction_conf_str = classify_extraction_confidence(rec_rate)
     stmt.extraction_confidence = rec_rate
@@ -257,30 +288,30 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
     for txn, ct in zip(txns, canonical_list):
         narration = txn.narration or ""
         txn.channel = infer_channel(narration)
-        direction = "debit" if txn.debit_amount else ("credit" if txn.credit_amount else "unknown")
+        direction = (
+            "debit"
+            if txn.debit_amount
+            else ("credit" if txn.credit_amount else "unknown")
+        )
         txn.category = assign_category(narration, direction)
         cp_raw = extract_counterparty(narration)
         if cp_raw:
-            if cp_raw in counterparty_cache:
-                txn.counterparty_id = counterparty_cache[cp_raw]
+            existing = db.exec(
+                select(Counterparty).where(Counterparty.canonical_name == cp_raw)
+            ).first()
+            if existing:
+                txn.counterparty_id = existing.id
             else:
-                existing = db.exec(
-                    select(Counterparty).where(Counterparty.canonical_name == cp_raw)
-                ).first()
-                if existing:
-                    txn.counterparty_id = existing.id
-                    counterparty_cache[cp_raw] = existing.id
-                else:
-                    cp = Counterparty(
-                        canonical_name=cp_raw,
-                        raw_variants=[cp_raw],
-                        first_seen_statement_id=statement_id,
-                    )
-                    db.add(cp)
-                    db.commit()
-                    db.refresh(cp)
-                    txn.counterparty_id = cp.id
-                    counterparty_cache[cp_raw] = cp.id
+                cp = Counterparty(
+                    canonical_name=cp_raw,
+                    raw_variants=[cp_raw],
+                    first_seen_statement_id=statement_id,
+                )
+                db.add(cp)
+                db.commit()
+                db.refresh(cp)
+                txn.counterparty_id = cp.id
+                counterparty_cache[cp_raw] = cp.id
 
     db.commit()
 
@@ -292,13 +323,15 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
         val = info.get("value")
         if val is not None and isinstance(val, (int, float)):
             feature_values[name] = float(val)
-        features_list.append({
-            "name": name,
-            "value": val,
-            "formula": info.get("formula", ""),
-            "explanation": info.get("explanation", ""),
-            "family": info.get("family", ""),
-        })
+        features_list.append(
+            {
+                "name": name,
+                "value": val,
+                "formula": info.get("formula", ""),
+                "explanation": info.get("explanation", ""),
+                "family": info.get("family", ""),
+            }
+        )
 
     G = build_transaction_graph(df, subject_account_id=f"ACCT_{statement_id}")
     graph_json = graph_to_json(G)
@@ -310,7 +343,7 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
             if txn.row_id in contributing:
                 cid = c.get("cycle_id", "")
                 txn.tagged_cycles.append(cid)
-                
+
     max_cycle_risk_score = 0.0
     if cycles:
         max_cycle_risk_score = max(c.get("cycle_risk_score", 0.0) for c in cycles)
@@ -318,14 +351,16 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
 
     rule_score, triggered_rules = evaluate_rules(feature_values)
     anomaly_score: float = 0.0
-    anomaly_detail: Optional[dict[str, Any]] = None
+    anomaly_detail: dict[str, Any] | None = None
     try:
         mad_flagged = compute_mad_anomaly(feature_values)
-        
+
         feature_matrix = pd.DataFrame([feature_values]).fillna(0).to_numpy()
         feature_names = list(feature_values.keys())
-        iso_frac, top_iso, _ = compute_isolation_forest_anomaly(feature_matrix, feature_names)
-        
+        iso_frac, top_iso, _ = compute_isolation_forest_anomaly(
+            feature_matrix, feature_names
+        )
+
         anomaly_score = len(mad_flagged) / max(len(feature_values), 1)
         anomaly_detail = {
             "isolation_forest_score": iso_frac,
@@ -335,9 +370,15 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
     except Exception as exc:
         logger.warning("MAD anomaly scoring skipped: %s", exc)
 
-    fused_score, score_formula = fuse_scores(rule_score, anomaly_score)
+    supervised_probability: float | None = None
+    if supervised_scorer.available:
+        supervised_probability = supervised_scorer.predict_proba(feature_values)
+
+    fused_score, score_formula = fuse_scores(
+        rule_score, anomaly_score, supervised_probability
+    )
     rules_triggered_bool = len(triggered_rules) > 0
-    tier, thresholds_applied, decision_reason = decide_tier(
+    tier, thresholds_applied = decide_tier(
         fused_score=fused_score,
         rule_score=rule_score,
         anomaly_score=anomaly_score,
@@ -365,9 +406,6 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
         reconciliation_rate=rec_rate,
         extraction_conf_str=extraction_conf_str,
         manual_mapping_used=stmt.manual_mapping_used,
-        rule_score=rule_score,
-        anomaly_score=anomaly_score,
-        decision_reason=decision_reason,
     )
     bundle_json = evidence_bundle_to_json(bundle)
 
