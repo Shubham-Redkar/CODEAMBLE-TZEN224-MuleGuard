@@ -52,7 +52,10 @@ supervised_scorer = SupervisedScorer()
 
 
 class MappingOverrideIn(BaseModel):
-    column_mapping: dict[int, str]
+    # Keys are column header names (as shown in the UI) mapped to canonical
+    # field names. The backend converts these to integer column indices
+    # internally using the stored raw_headers.
+    column_mapping: dict[str, str]
     save_as_template: bool = False
     headers: list[str] | None = None
     raw_rows: list[list[str]] | None = None
@@ -60,7 +63,7 @@ class MappingOverrideIn(BaseModel):
 
 class MappingOut(BaseModel):
     statement_id: int
-    column_mapping: dict[str, int]
+    column_mapping: dict[str, str]
     transaction_count: int
     message: str
 
@@ -198,10 +201,27 @@ async def update_mapping(
 ):
     stmt = _load_statement_or_404(db, statement_id)
 
-    if body.save_as_template:
-        headers = body.headers or []
-        if headers:
-            save_user_template(headers, body.column_mapping)
+    # Convert header-name keys → integer column-index keys required by
+    # map_row_to_transaction. The stored raw_headers gives us the index of
+    # each header name in the original CSV/XLSX rows.
+    resolved_headers: list[str] = body.headers or (stmt.raw_headers or [])
+    header_to_idx: dict[str, int] = {h: i for i, h in enumerate(resolved_headers)}
+
+    int_col_mapping: dict[int, str] = {}
+    for header_key, field_name in body.column_mapping.items():
+        if not field_name:  # ignore blanks / "— ignore —" selections
+            continue
+        # Accept both header-name keys (from UI) and already-integer-string keys
+        if header_key in header_to_idx:
+            int_col_mapping[header_to_idx[header_key]] = field_name
+        else:
+            try:
+                int_col_mapping[int(header_key)] = field_name
+            except (ValueError, TypeError):
+                logger.warning("update_mapping: unknown header key %r — skipped", header_key)
+
+    if body.save_as_template and resolved_headers:
+        save_user_template(resolved_headers, int_col_mapping)
 
     stmt.manual_mapping_used = True
     db.add(stmt)
@@ -221,7 +241,7 @@ async def update_mapping(
         new_txn_count = 0
         for row_idx, row in enumerate(raw_rows):
             canonical = map_row_to_transaction(
-                row, body.column_mapping, statement_id, row_idx
+                row, int_col_mapping, statement_id, row_idx
             )
             if canonical is None:
                 continue
@@ -378,7 +398,7 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
         rule_score, anomaly_score, supervised_probability
     )
     rules_triggered_bool = len(triggered_rules) > 0
-    tier, thresholds_applied = decide_tier(
+    tier, thresholds_applied, decision_reason = decide_tier(
         fused_score=fused_score,
         rule_score=rule_score,
         anomaly_score=anomaly_score,
@@ -406,6 +426,9 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
         reconciliation_rate=rec_rate,
         extraction_conf_str=extraction_conf_str,
         manual_mapping_used=stmt.manual_mapping_used,
+        rule_score=rule_score,
+        anomaly_score=anomaly_score,
+        decision_reason=decision_reason,
     )
     bundle_json = evidence_bundle_to_json(bundle)
 

@@ -54,6 +54,8 @@ REGISTRY: dict[str, dict[str, Any]] = {
         "description": "Median holding time",
         "source_module": "behavior_features",
     },
+    # NOTE: average_daily_balance MUST come before turnover_ratio so that
+    # compute_all_features() can read the already-computed avg balance value.
     "average_daily_balance": {
         "fn": bf.average_daily_balance,
         "family": "behavior",
@@ -140,6 +142,8 @@ def compute_all_features(df: pd.DataFrame) -> dict[str, Any]:
         try:
             fn = entry["fn"]
             if name == "turnover_ratio":
+                # average_daily_balance is guaranteed to be computed before this
+                # because it appears earlier in the REGISTRY dict (insertion order).
                 avg_balance = results.get("average_daily_balance", {}).get("value")
                 value, formula, explanation = bf.turnover_ratio(df, avg_balance)
             elif name == "name_consistency_flag":

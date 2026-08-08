@@ -1,13 +1,27 @@
-from datetime import datetime
-from decimal import Decimal
-from pathlib import Path
 import re
+from datetime import datetime
 
 from app.config_loader import load_config
 
 
 def _try_parse_date(val: str) -> bool:
-    fmt_candidates = ["%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%Y", "%Y%m%d", "%d.%m.%Y"]
+    fmt_candidates = [
+        "%d %b %Y",
+        "%d-%b-%Y",
+        "%d %B %Y",
+        "%d-%B-%Y",
+        "%b %d, %Y",
+        "%b %d %Y",
+        "%d/%m/%Y",
+        "%d/%m/%y",
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%d-%m-%Y",
+        "%Y%m%d",
+        "%d.%m.%Y",
+        "%Y/%m/%d",
+        "%d %b %y",
+    ]
     for fmt in fmt_candidates:
         try:
             datetime.strptime(val.strip(), fmt)
@@ -18,7 +32,17 @@ def _try_parse_date(val: str) -> bool:
 
 
 def _is_numeric(val: str) -> bool:
-    cleaned = val.strip().replace(",", "").replace("₹", "").replace("$", "").replace(" ", "")
+    cleaned = (
+        val.strip()
+        .replace(",", "")
+        .replace("₹", "")
+        .replace("$", "")
+        .replace("Rs.", "")
+        .replace("INR", "")
+        .replace("+", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
     try:
         float(cleaned)
         return True
@@ -26,7 +50,9 @@ def _is_numeric(val: str) -> bool:
         return False
 
 
-def _has_date_column(columns: list[list[str]], min_date_fraction: float = 0.8) -> tuple[bool, float]:
+def _has_date_column(
+    columns: list[list[str]], min_date_fraction: float = 0.8
+) -> tuple[bool, float]:
     for col_idx in range(len(columns[0])):
         col_vals = [row[col_idx] for row in columns if col_idx < len(row)]
         if not col_vals:
@@ -38,7 +64,9 @@ def _has_date_column(columns: list[list[str]], min_date_fraction: float = 0.8) -
     return False, 0.0
 
 
-def _has_amount_columns(columns: list[list[str]], min_amount_fraction: float = 0.8) -> tuple[bool, float]:
+def _has_amount_columns(
+    columns: list[list[str]], min_amount_fraction: float = 0.8
+) -> tuple[bool, float]:
     numeric_cols = 0
     total_cols = len(columns[0]) if columns else 0
     for col_idx in range(total_cols):
@@ -55,12 +83,20 @@ def _has_amount_columns(columns: list[list[str]], min_amount_fraction: float = 0
     return numeric_cols >= 2, numeric_cols / max(total_cols, 1)
 
 
-def _has_running_balance_column(columns: list[list[str]], sample_size: int = 20) -> tuple[bool, float]:
+def _has_running_balance_column(
+    columns: list[list[str]], sample_size: int = 20
+) -> tuple[bool, float]:
     for col_idx in range(len(columns[0])):
         col_vals = [row[col_idx] for row in columns if col_idx < len(row)]
         numeric_vals: list[float] = []
         for v in col_vals:
-            cleaned = v.strip().replace(",", "").replace("₹", "").replace("$", "").replace(" ", "")
+            cleaned = (
+                v.strip()
+                .replace(",", "")
+                .replace("₹", "")
+                .replace("$", "")
+                .replace(" ", "")
+            )
             try:
                 numeric_vals.append(float(cleaned))
             except ValueError:
@@ -97,7 +133,11 @@ def _has_bank_identity_markers(full_text: str) -> tuple[bool, float]:
         markers += 1
     if re.search(r"\bMICR\b", full_text, re.IGNORECASE):
         markers += 1
-    if re.search(r"(Statement of Account|Account Statement|Bank Statement)", full_text, re.IGNORECASE):
+    if re.search(
+        r"(Statement of Account|Account Statement|Bank Statement)",
+        full_text,
+        re.IGNORECASE,
+    ):
         markers += 1
     if re.search(r"[₹$€]", full_text):
         markers += 1
@@ -127,8 +167,14 @@ def compute_statement_likelihood(
     auto_proceed = cfg.get("ood", {}).get("auto_proceed", 0.70)
 
     if not raw_rows or len(raw_rows) < 3:
-        return 0.0, {"has_date_column": 0, "has_amount_columns": 0, "has_running_balance_column": 0,
-                     "has_bank_identity_markers": 0, "has_narration_column": 0, "row_count_plausible": 0}
+        return 0.0, {
+            "has_date_column": 0,
+            "has_amount_columns": 0,
+            "has_running_balance_column": 0,
+            "has_bank_identity_markers": 0,
+            "has_narration_column": 0,
+            "row_count_plausible": 0,
+        }
 
     columns = list(zip(*raw_rows, strict=False)) if len(raw_rows[0]) > 0 else []
     columns = [list(c) for c in columns]
@@ -170,7 +216,9 @@ def classify_ood_tier(score: float, signals: dict[str, float]) -> str:
         return "hard_reject"
 
 
-def get_failure_reasons(signals: dict[str, float], weights: dict[str, float]) -> list[str]:
+def get_failure_reasons(
+    signals: dict[str, float], weights: dict[str, float]
+) -> list[str]:
     reasons = []
     for signal_name, weight in weights.items():
         val = signals.get(signal_name, 0)

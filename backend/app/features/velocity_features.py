@@ -17,7 +17,9 @@ def inflow_outflow_velocity(df: pd.DataFrame) -> tuple[int | None, str, str]:
     for i in range(len(dates)):
         window_end = dates.iloc[i]
         window_start = window_end - pd.Timedelta(hours=24)
-        count = ((dates >= window_start) & (dates <= window_end)).sum()
+        # .sum() on a boolean Series already returns an int scalar.
+        # Do NOT wrap with int() — that raises TypeError on multi-element Series.
+        count = int(((dates >= window_start) & (dates <= window_end)).sum())
         max_count = max(max_count, count)
 
     return max_count, "max txn count in any rolling 24h window", "Peak 24h velocity"

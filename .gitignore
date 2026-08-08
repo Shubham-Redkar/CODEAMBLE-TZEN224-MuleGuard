@@ -1,6 +1,6 @@
 # User data (statements, database, exports)
 data/
-
+datasets/ibm_aml/
 # Python
 __pycache__/
 *.py[cod]
