@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { GitGraph, AlertCircle } from "lucide-react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { GitGraph, LayoutDashboard, Search, Upload, ArrowRight } from "lucide-react";
 import { api, GraphData } from "../lib/api";
 import { ProofGraphCanvas } from "../components/ProofGraphCanvas";
+import { useStatement } from "../lib/StatementContext";
 
 export function ProofGraphPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { currentId, setCurrentId, statements } = useStatement();
+
+  const effectiveId = id ? Number(id) : currentId;
+
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -13,62 +19,137 @@ export function ProofGraphPage() {
   const [mode, setMode] = useState<"single" | "merged">("single");
 
   useEffect(() => {
-    if (!id) return;
+    if (id && Number(id) !== currentId) {
+      setCurrentId(Number(id));
+    }
+  }, [id, currentId, setCurrentId]);
+
+  useEffect(() => {
+    if (!effectiveId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    api.getGraph(Number(id))
+    api.getGraph(effectiveId)
       .then(setGraph)
       .catch(() => setGraph(null))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [effectiveId]);
 
   if (loading) return (
-    <div className="p-6 flex items-center gap-3 text-gray-500">
-      <GitGraph className="w-5 h-5 animate-pulse" /> Loading transaction graph...
+    <div className="p-8 flex items-center gap-3 text-gray-500">
+      <GitGraph className="w-5 h-5 animate-pulse text-purple-600" /> Loading transaction graph...
     </div>
   );
 
-  if (!graph) return (
-    <div className="p-6">
-      <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-        <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5" />
-        <div>
-          <p className="font-medium text-amber-700">Graph data not available</p>
-          <p className="text-sm text-amber-600">Upload and confirm a statement first. <Link to="/" className="underline">Upload a statement</Link></p>
+  if (!effectiveId || !graph) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto">
+        <div className="bg-white border rounded-xl p-8 text-center shadow-sm space-y-4">
+          <GitGraph className="w-12 h-12 mx-auto text-gray-400" />
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">
+              {!effectiveId ? "No Statement Selected" : `Transaction Graph Not Available for Statement #${effectiveId}`}
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              {!effectiveId
+                ? "Select a statement from history or upload a new statement."
+                : "Confirm the extraction and run analysis first to build the transaction graph."}
+            </p>
+          </div>
+
+          {effectiveId && (
+            <div>
+              <button
+                onClick={() => navigate(`/review/${effectiveId}`)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm"
+              >
+                Review & Confirm Extraction <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {statements.length > 0 && (
+            <div className="mt-6 pt-6 border-t text-left">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Available Statements</h3>
+              <div className="max-w-md mx-auto border rounded-lg divide-y bg-gray-50/50">
+                {statements.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => {
+                      setCurrentId(s.id);
+                      navigate(`/graph/${s.id}`);
+                    }}
+                    className="w-full p-3 text-left hover:bg-blue-50/50 flex items-center justify-between text-xs transition-colors"
+                  >
+                    <div>
+                      <span className="font-semibold text-gray-800">#{s.id}: {s.original_filename}</span>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{s.transaction_count || 0} txns · {s.tier || s.status}</p>
+                    </div>
+                    <span className="text-purple-600 font-semibold">View Graph →</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Upload className="w-3.5 h-3.5" /> Upload New Statement
+            </Link>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   const subjectNode = graph.nodes.find((n) => n.id === "ACCT_SUBJECT");
   const selectedNodeData = graph.nodes.find((n) => n.id === selectedNode);
   const selectedEdgeData = graph.edges.find((e) => e.row_id === selectedEdge);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-4">
+    <div className="p-6 max-w-7xl mx-auto space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Proof Graph</h1>
-          <p className="text-gray-500 text-sm">Interactive transaction flow with cycle highlighting</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900">Proof Graph</h1>
+            <span className="text-xs bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded">
+              Statement #{effectiveId}
+            </span>
+          </div>
+          <p className="text-gray-500 text-sm mt-1">Interactive transaction flow network with cycle highlighting</p>
         </div>
         <div className="flex gap-2">
           {mode === "single" ? (
-            <button onClick={() => setMode("merged")} className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
+            <button onClick={() => setMode("merged")} className="px-3 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white shadow-sm">
               Merged View
             </button>
           ) : (
-            <button onClick={() => setMode("single")} className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
+            <button onClick={() => setMode("single")} className="px-3 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white shadow-sm">
               Single Account
             </button>
           )}
-          <Link to={`/dashboard/${id}`} className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
-            Back to Dashboard
+          <Link
+            to={`/dashboard/${effectiveId}`}
+            className="px-3.5 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white flex items-center gap-1.5 shadow-sm"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5 text-blue-600" /> Dashboard
+          </Link>
+          <Link
+            to={`/evidence/${effectiveId}`}
+            className="px-3.5 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white flex items-center gap-1.5 shadow-sm"
+          >
+            <Search className="w-3.5 h-3.5 text-blue-600" /> Evidence
           </Link>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="lg:col-span-3">
-          <div className="bg-white border rounded-lg overflow-hidden" style={{ height: "500px" }}>
+          <div className="bg-white border rounded-xl overflow-hidden shadow-sm" style={{ height: "540px" }}>
             <ProofGraphCanvas
               nodes={graph.nodes}
               edges={graph.edges}
@@ -79,25 +160,27 @@ export function ProofGraphPage() {
           </div>
         </div>
         <div className="space-y-3">
-          <div className="bg-white border rounded-lg p-4">
-            <h3 className="font-semibold text-sm mb-2">Graph Summary</h3>
-            <div className="text-xs text-gray-500 space-y-1">
-              <p>Nodes: {graph.nodes.length}</p>
-              <p>Edges: {graph.edges.length}</p>
-              <p>Cycles: {graph.cycles.length}</p>
-              {subjectNode && <p>Total Flow: ₹{subjectNode.flow.toFixed(2)}</p>}
+          <div className="bg-white border rounded-xl p-4 shadow-sm">
+            <h3 className="font-semibold text-sm text-gray-800 mb-2">Graph Summary</h3>
+            <div className="text-xs text-gray-600 space-y-1.5">
+              <p className="flex justify-between"><span>Entities (Nodes):</span> <strong>{graph.nodes.length}</strong></p>
+              <p className="flex justify-between"><span>Transfers (Edges):</span> <strong>{graph.edges.length}</strong></p>
+              <p className="flex justify-between"><span>Circular Flows:</span> <strong>{graph.cycles.length}</strong></p>
+              {subjectNode && <p className="flex justify-between"><span>Total Volume:</span> <strong>₹{subjectNode.flow.toFixed(2)}</strong></p>}
             </div>
           </div>
 
           {graph.cycles.length > 0 && (
-            <div className="bg-white border rounded-lg p-4">
-              <h3 className="font-semibold text-sm mb-2">Detected Cycles</h3>
+            <div className="bg-white border rounded-xl p-4 shadow-sm">
+              <h3 className="font-semibold text-sm text-gray-800 mb-2">Detected Cycles</h3>
               <div className="space-y-2">
                 {graph.cycles.map((c) => (
-                  <div key={c.cycle_id} className="text-xs border border-purple-200 bg-purple-50 rounded p-2">
-                    <span className="font-bold text-purple-700">{c.cycle_id}</span>
-                    <span className="ml-2">Risk: {(c.risk_score * 100).toFixed(0)}%</span>
-                    <p className="text-gray-500 mt-1">{c.node_ids.join(" → ")}</p>
+                  <div key={c.cycle_id} className="text-xs border border-purple-200 bg-purple-50/80 rounded-lg p-2.5">
+                    <span className="font-bold text-purple-800 font-mono">{c.cycle_id}</span>
+                    <span className="ml-2 bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                      Risk: {(c.cycle_risk_score * 100).toFixed(0)}%
+                    </span>
+                    <p className="text-gray-600 mt-1 font-mono text-[11px]">{c.nodes.join(" → ")}</p>
                   </div>
                 ))}
               </div>
@@ -105,28 +188,27 @@ export function ProofGraphPage() {
           )}
 
           {selectedNodeData && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <h3 className="font-semibold text-sm text-blue-700">Selected Node</h3>
-              <p className="text-xs mt-1">{selectedNodeData.label}</p>
-              <p className="text-xs text-gray-500">Flow: ₹{selectedNodeData.flow.toFixed(2)}</p>
+            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs shadow-sm">
+              <h3 className="font-semibold text-blue-900">Selected Node</h3>
+              <p className="font-medium mt-1 text-gray-800">{selectedNodeData.label}</p>
+              <p className="text-gray-600 mt-0.5">Total Transfer Flow: ₹{selectedNodeData.flow.toFixed(2)}</p>
             </div>
           )}
 
           {selectedEdgeData && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <h3 className="font-semibold text-sm text-blue-700">Selected Transaction</h3>
-              <p className="text-xs mt-1">Row: {selectedEdgeData.row_id}</p>
-              <p className="text-xs">Amount: ₹{selectedEdgeData.amount.toFixed(2)}</p>
-              <p className="text-xs text-gray-500">Channel: {selectedEdgeData.channel}</p>
+            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs shadow-sm">
+              <h3 className="font-semibold text-blue-900">Selected Transaction</h3>
+              <p className="font-mono text-gray-700 mt-1">Row: {selectedEdgeData.row_id}</p>
+              <p className="font-bold text-blue-700 text-sm mt-0.5">₹{selectedEdgeData.amount.toFixed(2)}</p>
+              <p className="text-gray-500">Channel: {selectedEdgeData.channel || "N/A"}</p>
             </div>
           )}
 
-          <div className="bg-gray-50 border rounded-lg p-3 text-xs text-gray-500">
-            <p className="font-medium mb-1">Legend</p>
-            <p><span className="inline-block w-3 h-3 bg-blue-500 rounded-full mr-1" /> Account / Counterparty</p>
-            <p><span className="inline-block w-3 h-3 bg-purple-500 rounded-full mr-1" /> Cycle participant</p>
-            <p><span className="inline-block w-4 h-0.5 bg-gray-400 mr-1 align-middle" /> Transaction (width = amount)</p>
-            <p className="mt-2 text-xs">Click a node or edge to inspect.</p>
+          <div className="bg-gray-50 border rounded-xl p-3.5 text-xs text-gray-500 space-y-1.5 shadow-sm">
+            <p className="font-semibold text-gray-700 mb-1">Graph Legend</p>
+            <p className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 bg-blue-500 rounded-full" /> Counterparty / Account</p>
+            <p className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 bg-purple-600 rounded-full" /> Cycle Participant</p>
+            <p className="flex items-center gap-1.5"><span className="inline-block w-4 h-0.5 bg-gray-400 align-middle" /> Fund Flow Direction</p>
           </div>
         </div>
       </div>
