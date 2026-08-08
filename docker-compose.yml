@@ -1,0 +1,38 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: muleguard-ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  muleguard:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: muleguard-app
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - DATA_DIR=/data
+      - LOG_LEVEL=INFO
+      - HOST=127.0.0.1
+      - PORT=8000
+    volumes:
+      - ./data:/data
+      - ./config:/app/config:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
