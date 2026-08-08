@@ -3,7 +3,7 @@ import cytoscape, { Core, ElementDefinition } from "cytoscape";
 
 type GraphNode = { id: string; label: string; flow: number };
 type GraphEdge = { source: string; target: string; amount: number; channel: string; row_id: string };
-type CycleInfo = { cycle_id: string; node_ids: string[]; risk_score: number };
+type CycleInfo = { cycle_id: string; nodes: string[]; cycle_risk_score: number; hop_count: number };
 
 type ProofGraphCanvasProps = {
   nodes: GraphNode[];
@@ -34,7 +34,7 @@ export function ProofGraphCanvas({ nodes, edges, cycles, onNodeClick, onEdgeClic
       })),
     ];
 
-    const cycleNodeIds = new Set(cycles.flatMap((c) => c.node_ids));
+    const cycleNodeIds = new Set(cycles.flatMap((c) => c.nodes));
 
     cyRef.current = cytoscape({
       container: containerRef.current,
