@@ -14,7 +14,12 @@ def reconcile_transactions(
     cfg = load_config("thresholds")
     tolerance = Decimal(str(cfg.get("reconciliation", {}).get("tolerance", 0.01)))
 
-    sorted_txns = sorted(transactions, key=lambda t: (t.txn_date, t.row_id))
+    def _sort_key(t: CanonicalTransaction):
+        parts = str(t.row_id).split("-")
+        row_num = int(parts[-1]) if parts[-1].isdigit() else 0
+        return (t.txn_date or date.min, row_num)
+
+    sorted_txns = sorted(transactions, key=_sort_key)
     has_balance = any(t.balance_after is not None for t in sorted_txns)
 
     if not has_balance:

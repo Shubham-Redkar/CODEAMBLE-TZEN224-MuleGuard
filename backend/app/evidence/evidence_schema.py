@@ -65,6 +65,9 @@ class FinalDecision(BaseModel):
     fused_score: float = 0.0
     score_formula_used: str = ""
     thresholds_applied: dict[str, Any] = {}
+    rule_score: Optional[float] = 0.0
+    anomaly_score: Optional[float] = 0.0
+    decision_reason: Optional[str] = ""
 
 
 class EvidenceBundle(BaseModel):

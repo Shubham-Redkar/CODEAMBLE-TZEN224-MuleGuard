@@ -25,6 +25,9 @@ def assemble_evidence_bundle(
     reconciliation_rate: Optional[float],
     extraction_conf_str: str,
     manual_mapping_used: bool,
+    rule_score: Optional[float] = 0.0,
+    anomaly_score: Optional[float] = 0.0,
+    decision_reason: Optional[str] = "",
 ) -> EvidenceBundle:
     bundle = EvidenceBundle(
         account_summary=AccountSummary(
@@ -39,6 +42,9 @@ def assemble_evidence_bundle(
             fused_score=fused_score,
             score_formula_used=score_formula,
             thresholds_applied=thresholds_applied,
+            rule_score=rule_score,
+            anomaly_score=anomaly_score,
+            decision_reason=decision_reason,
         ),
         triggered_rules=[
             RuleEvidence(

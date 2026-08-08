@@ -154,8 +154,18 @@ export function ProofGraphPage() {
               nodes={graph.nodes}
               edges={graph.edges}
               cycles={graph.cycles}
-              onNodeClick={(nodeId) => setSelectedNode(nodeId)}
-              onEdgeClick={(edgeRowId) => setSelectedEdge(edgeRowId)}
+              muleRowIds={graph.mule_row_ids}
+              muleNodes={graph.mule_nodes}
+              selectedNode={selectedNode}
+              selectedEdge={selectedEdge}
+              onNodeClick={(nodeId) => {
+                setSelectedNode(nodeId);
+                setSelectedEdge(null);
+              }}
+              onEdgeClick={(edgeRowId) => {
+                setSelectedEdge(edgeRowId);
+                setSelectedNode(null);
+              }}
             />
           </div>
         </div>
@@ -166,21 +176,27 @@ export function ProofGraphPage() {
               <p className="flex justify-between"><span>Entities (Nodes):</span> <strong>{graph.nodes.length}</strong></p>
               <p className="flex justify-between"><span>Transfers (Edges):</span> <strong>{graph.edges.length}</strong></p>
               <p className="flex justify-between"><span>Circular Flows:</span> <strong>{graph.cycles.length}</strong></p>
-              {subjectNode && <p className="flex justify-between"><span>Total Volume:</span> <strong>₹{subjectNode.flow.toFixed(2)}</strong></p>}
+              {subjectNode && typeof subjectNode.flow === "number" && (
+                <p className="flex justify-between">
+                  <span>Total Volume:</span> <strong>₹{subjectNode.flow.toFixed(2)}</strong>
+                </p>
+              )}
             </div>
           </div>
 
-          {graph.cycles.length > 0 && (
+          {graph.cycles && graph.cycles.length > 0 && (
             <div className="bg-white border rounded-xl p-4 shadow-sm">
               <h3 className="font-semibold text-sm text-gray-800 mb-2">Detected Cycles</h3>
               <div className="space-y-2">
                 {graph.cycles.map((c) => (
-                  <div key={c.cycle_id} className="text-xs border border-purple-200 bg-purple-50/80 rounded-lg p-2.5">
-                    <span className="font-bold text-purple-800 font-mono">{c.cycle_id}</span>
-                    <span className="ml-2 bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[10px] font-bold">
-                      Risk: {(c.cycle_risk_score * 100).toFixed(0)}%
-                    </span>
-                    <p className="text-gray-600 mt-1 font-mono text-[11px]">{c.nodes.join(" → ")}</p>
+                  <div key={c.cycle_id} className="text-xs border border-red-200 bg-red-50/80 rounded-lg p-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-red-800 font-mono">{c.cycle_id}</span>
+                      <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                        Risk: {c.cycle_risk_score != null ? ((c.cycle_risk_score as number) * 100).toFixed(0) : "0"}%
+                      </span>
+                    </div>
+                    <p className="text-gray-700 mt-1 font-mono text-[11px] font-medium">{c.nodes ? c.nodes.join(" → ") : ""}</p>
                   </div>
                 ))}
               </div>
@@ -191,7 +207,9 @@ export function ProofGraphPage() {
             <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs shadow-sm">
               <h3 className="font-semibold text-blue-900">Selected Node</h3>
               <p className="font-medium mt-1 text-gray-800">{selectedNodeData.label}</p>
-              <p className="text-gray-600 mt-0.5">Total Transfer Flow: ₹{selectedNodeData.flow.toFixed(2)}</p>
+              <p className="text-gray-600 mt-0.5">
+                Total Transfer Flow: ₹{typeof selectedNodeData.flow === "number" ? selectedNodeData.flow.toFixed(2) : "0.00"}
+              </p>
             </div>
           )}
 
@@ -199,16 +217,35 @@ export function ProofGraphPage() {
             <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs shadow-sm">
               <h3 className="font-semibold text-blue-900">Selected Transaction</h3>
               <p className="font-mono text-gray-700 mt-1">Row: {selectedEdgeData.row_id}</p>
-              <p className="font-bold text-blue-700 text-sm mt-0.5">₹{selectedEdgeData.amount.toFixed(2)}</p>
+              <p className="font-bold text-blue-700 text-sm mt-0.5">
+                ₹{typeof selectedEdgeData.amount === "number" ? selectedEdgeData.amount.toFixed(2) : "0.00"}
+              </p>
               <p className="text-gray-500">Channel: {selectedEdgeData.channel || "N/A"}</p>
             </div>
           )}
 
-          <div className="bg-gray-50 border rounded-xl p-3.5 text-xs text-gray-500 space-y-1.5 shadow-sm">
-            <p className="font-semibold text-gray-700 mb-1">Graph Legend</p>
-            <p className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 bg-blue-500 rounded-full" /> Counterparty / Account</p>
-            <p className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 bg-purple-600 rounded-full" /> Cycle Participant</p>
-            <p className="flex items-center gap-1.5"><span className="inline-block w-4 h-0.5 bg-gray-400 align-middle" /> Fund Flow Direction</p>
+          <div className="bg-gray-50 border rounded-xl p-3.5 text-xs text-gray-600 space-y-2 shadow-sm">
+            <p className="font-semibold text-gray-800 mb-1">Graph Legend</p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 bg-purple-600 rounded-full shadow-sm" />
+              <span><strong>Account Entity</strong> (Purple)</span>
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 bg-blue-500 rounded-full shadow-sm" />
+              <span><strong>Counterparty Node</strong> (Blue)</span>
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 bg-red-500 rounded-full ring-2 ring-red-300 shadow-sm" />
+              <span className="text-red-700 font-semibold">Mule Node / Cycle Entity (Red Bold)</span>
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block w-5 h-1 bg-red-500 rounded align-middle" />
+              <span className="text-red-700 font-semibold">Mule Transaction (Bold Red Flow)</span>
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block w-5 h-0.5 bg-slate-500 align-middle" />
+              <span className="text-gray-600">Regular Transaction Flow (Slate)</span>
+            </p>
           </div>
         </div>
       </div>

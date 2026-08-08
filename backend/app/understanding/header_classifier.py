@@ -6,7 +6,7 @@ from rapidfuzz import fuzz
 from app.config_loader import load_config
 
 FIELD_HINTS: dict[str, list[str]] = {
-    "txn_date": ["date", "txn date", "transaction date", "value date", "trans date"],
+    "txn_date": ["transaction date", "txn date", "trans date", "date", "post date"],
     "value_date": ["value date", "value dt", "val dt"],
     "narration": ["narration", "description", "particulars", "details", "remarks", "transaction details"],
     "debit_amount": ["debit", "withdrawal", "dr", "amount debited", "withdrawal amt", "debit amount"],

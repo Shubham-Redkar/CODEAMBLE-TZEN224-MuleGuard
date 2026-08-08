@@ -50,6 +50,8 @@ export type GraphData = {
   nodes: { id: string; label: string; flow: number }[];
   edges: { source: string; target: string; amount: number; channel: string; row_id: string }[];
   cycles: { cycle_id: string; nodes: string[]; cycle_risk_score: number; hop_count: number }[];
+  mule_row_ids?: string[];
+  mule_nodes?: string[];
 };
 
 export type StatementItem = {
@@ -93,7 +95,7 @@ export const api = {
   updateMapping: (id: number, mapping: Record<string, string>) =>
     request<{ status: string }>(`/statements/${id}/mapping`, {
       method: "POST",
-      body: JSON.stringify(mapping),
+      body: JSON.stringify({ column_mapping: mapping }),
     }),
 
   confirmExtraction: (id: number) =>

@@ -3,5 +3,6 @@ frontend/node_modules
 .git
 .env
 data/
+datasets/
 frontend/dist/
-backend/__pycache__/
+backend/__pycache__/ 

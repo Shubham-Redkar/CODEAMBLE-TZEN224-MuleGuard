@@ -140,6 +140,24 @@ export function DashboardPage() {
     .slice(0, 10)
     .map((f) => ({ name: f.name, value: f.value as number, family: f.family }));
 
+  const anomaly = bundle?.anomaly_detail || null;
+  const madFeatures = (anomaly?.mad_flagged_features as Record<string, number>) || {};
+  const madCount = Object.keys(madFeatures).length;
+  const ruleScoreNum = typeof decision.rule_score === "number" ? decision.rule_score : (rules.reduce((acc, r) => acc + ((r.points as number) || 0), 0));
+  const anomalyScorePct = typeof decision.anomaly_score === "number" 
+    ? (decision.anomaly_score * 100) 
+    : (features.length > 0 ? (madCount / Math.max(features.length, 1)) * 100 : 0);
+
+  const decisionReason = (decision.decision_reason as string) || (
+    tier === "CONFIRMED_SUSPICIOUS"
+      ? `Fused risk score (${score.toFixed(1)} >= 75) with active regulatory fraud rules triggered.`
+      : tier === "LIKELY_LEGITIMATE"
+      ? `Fused score (${score.toFixed(1)} <= 25) with 0 severe rules triggered and normal anomaly sub-score (${anomalyScorePct.toFixed(1)}% < 30%).`
+      : rules.length === 0 && score <= 25
+      ? `0 deterministic rules triggered (Rule Score: 0.0), but statistical anomaly sub-score (${anomalyScorePct.toFixed(1)}%) exceeded the strict auto-clear threshold (< 30.0%). Conservative AML policy requires human sign-off.`
+      : `Ambiguous risk score (${score.toFixed(1)} / 100) requiring investigator verification.`
+  );
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -177,9 +195,40 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1">
-          <RiskGauge score={score} tier={tier as "CONFIRMED_SUSPICIOUS" | "REVIEW_REQUIRED" | "LIKELY_LEGITIMATE"} />
-          <div className="mt-2 text-xs text-gray-400 text-center">{decision.score_formula_used as string}</div>
+        <div className="lg:col-span-1 space-y-3">
+          <div className="bg-white border rounded-xl p-4 shadow-sm text-center">
+            <RiskGauge score={score} tier={tier as "CONFIRMED_SUSPICIOUS" | "REVIEW_REQUIRED" | "LIKELY_LEGITIMATE"} />
+            <div className="mt-2 text-xs text-gray-400 font-mono">{decision.score_formula_used as string}</div>
+            
+            <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t text-left">
+              <div className="p-2 bg-gray-50 rounded border">
+                <span className="text-[10px] uppercase font-semibold text-gray-400 block">Rule Score</span>
+                <span className="text-xs font-bold text-gray-800">{ruleScoreNum.toFixed(1)} pts</span>
+                <span className="text-[10px] text-gray-500 block">65% weight</span>
+              </div>
+              <div className="p-2 bg-gray-50 rounded border">
+                <span className="text-[10px] uppercase font-semibold text-gray-400 block">Anomaly Sub-Score</span>
+                <span className={`text-xs font-bold ${anomalyScorePct >= 30 ? "text-amber-700" : "text-green-700"}`}>
+                  {anomalyScorePct.toFixed(1)}%
+                </span>
+                <span className="text-[10px] text-gray-500 block">&lt; 30% to auto-clear</span>
+              </div>
+            </div>
+          </div>
+
+          <div className={`p-3 rounded-xl border text-xs shadow-sm ${
+            tier === "CONFIRMED_SUSPICIOUS" 
+              ? "bg-red-50/80 border-red-200 text-red-800" 
+              : tier === "LIKELY_LEGITIMATE" 
+              ? "bg-green-50/80 border-green-200 text-green-800" 
+              : "bg-amber-50/80 border-amber-200 text-amber-800"
+          }`}>
+            <div className="font-semibold mb-1 flex items-center justify-between">
+              <span>Decision Policy Rationale</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/70">{tier}</span>
+            </div>
+            <p className="text-[11px] leading-relaxed">{decisionReason}</p>
+          </div>
         </div>
         <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3">
           {features.slice(0, 8).map((f) => (
