@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes_health import router as health_router
@@ -12,7 +13,8 @@ from app.api.routes_report import router as report_router
 from app.api.routes_config import router as config_router
 from app.db.session import engine
 from app.db.models import SQLModel
-from app.guardrails.privacy_guard import PIIRedactionMiddleware
+from app.guardrails.privacy_guard import PIIRedactionMiddleware, PIIFilter
+import logging
 
 app = FastAPI(
     title="MuleGuard Local",
@@ -26,6 +28,7 @@ app = FastAPI(
 @app.on_event("startup")
 async def on_startup():
     SQLModel.metadata.create_all(engine)
+    logging.getLogger().addFilter(PIIFilter())
 
 app.add_middleware(PIIRedactionMiddleware)
 
@@ -41,4 +44,13 @@ app.include_router(config_router, prefix="/api/config", tags=["config"])
 
 static_dir = Path(__file__).parents[2] / "frontend" / "dist"
 if static_dir.is_dir():
-    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
+    # Mount static assets (JS, CSS, images) under /assets
+    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+
+    # Catch-all: serve index.html for all non-API routes so React Router works on refresh
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str, request: Request):
+        index = static_dir / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+        return {"detail": "Frontend not built"}

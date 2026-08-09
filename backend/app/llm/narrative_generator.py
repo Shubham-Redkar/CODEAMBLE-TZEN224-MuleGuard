@@ -3,10 +3,17 @@ import os
 from typing import Any, Optional
 
 from app.evidence.evidence_schema import EvidenceBundle
-from app.llm.ollama_client import OllamaClient
 from app.llm.fact_checker import fact_check_output
 from app.config_loader import load_prompt
 
+
+def _get_llm_client():
+    """Return Groq client if GROQ_API_KEY is set, otherwise fall back to Ollama."""
+    if os.environ.get("GROQ_API_KEY"):
+        from app.llm.groq_client import GroqClient
+        return GroqClient()
+    from app.llm.ollama_client import OllamaClient
+    return OllamaClient()
 
 def generate_narrative(evidence_bundle: EvidenceBundle, use_ai: bool = True) -> tuple[str, str]:
     bundle_json = evidence_bundle.model_dump()
@@ -19,7 +26,7 @@ def generate_narrative(evidence_bundle: EvidenceBundle, use_ai: bool = True) -> 
 
     try:
         system_prompt = load_prompt("system_prompt_summary.txt")
-        client = OllamaClient()
+        client = _get_llm_client()
 
         if not client.is_available():
             return template, "template"

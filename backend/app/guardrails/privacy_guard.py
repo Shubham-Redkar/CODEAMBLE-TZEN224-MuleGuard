@@ -27,15 +27,8 @@ class PIIRedactionMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class PIIRedactingLogger:
-    def __init__(self, logger: logging.Logger):
-        self._logger = logger
-
-    def info(self, msg: str, *args, **kwargs):
-        self._logger.info(redact_pii(msg), *args, **kwargs)
-
-    def error(self, msg: str, *args, **kwargs):
-        self._logger.error(redact_pii(msg), *args, **kwargs)
-
-    def warning(self, msg: str, *args, **kwargs):
-        self._logger.warning(redact_pii(msg), *args, **kwargs)
+class PIIFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = redact_pii(record.msg)
+        return True

@@ -49,19 +49,27 @@ def compute_isolation_forest_anomaly(
     return float(anomaly_frac), top_features, {"seed": random_state, "n_estimators": n_estimators}
 
 
-def compute_mad_anomaly(feature_values: dict[str, float]) -> dict[str, float]:
+def compute_mad_anomaly(feature_matrix: np.ndarray, feature_names: list[str]) -> dict[str, float]:
     cfg = load_config("thresholds")
     threshold = cfg.get("anomaly", {}).get("robust_zscore_threshold", 3.5)
 
-    names = list(feature_values.keys())
-    vals = [v for v in feature_values.values() if isinstance(v, (int, float))]
+    if feature_matrix.shape[0] < 3 or feature_matrix.shape[1] == 0:
+        return {}
 
-    if len(vals) < 3:
-        return {n: 0.0 for n in names}
-
-    zscores = compute_robust_zscore(vals)
     flagged: dict[str, float] = {}
-    for n, z in zip(names, zscores):
-        if abs(z) > threshold:
-            flagged[n] = round(z, 4)
+    
+    # We want to check if the *current* statement (last row) is an anomaly
+    # compared to the distribution of all statements (all rows).
+    current_row = feature_matrix[-1, :]
+    
+    for col_idx, name in enumerate(feature_names):
+        col_data = feature_matrix[:, col_idx]
+        median = np.median(col_data)
+        mad = np.median(np.abs(col_data - median))
+        
+        if mad > 0:
+            z = 0.6745 * (current_row[col_idx] - median) / mad
+            if abs(z) > threshold:
+                flagged[name] = round(z, 4)
+                
     return flagged
