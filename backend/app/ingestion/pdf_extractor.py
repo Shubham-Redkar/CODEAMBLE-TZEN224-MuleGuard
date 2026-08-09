@@ -308,7 +308,3 @@ def extract_pdf(file_path: str | Path) -> tuple[list[list[str]], list[str] | Non
     return [], None, "pdf_failed"
 
 
-def extract_text_layer_pdf(file_path: str | Path) -> list[list[str]]:
-    """Legacy helper for test compatibility."""
-    rows, _, _ = extract_pdf(file_path)
-    return rows

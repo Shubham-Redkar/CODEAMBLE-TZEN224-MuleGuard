@@ -310,6 +310,30 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
     extraction_conf_str = classify_extraction_confidence(rec_rate)
     stmt.extraction_confidence = rec_rate
 
+    # Pass 1: Identify narrations that need AI categorization
+    unique_narrations_for_ai = set()
+    for txn, ct in zip(txns, canonical_list):
+        narration = txn.narration or ""
+        direction = "debit" if txn.debit_amount else ("credit" if txn.credit_amount else "unknown")
+        cat = assign_category(narration, direction)
+        cp = extract_counterparty(narration)
+        if (cat == "uncategorized" or cp is None) and narration.strip():
+            unique_narrations_for_ai.add(narration.strip())
+
+    ai_results = {}
+    if unique_narrations_for_ai:
+        # Limit to 100 to prevent massive latency
+        narrations_to_process = list(unique_narrations_for_ai)[:100]
+        try:
+            from app.categorization.llm_categorizer import batch_categorize
+            # Process in chunks of 20
+            for i in range(0, len(narrations_to_process), 20):
+                chunk = narrations_to_process[i:i+20]
+                chunk_results = batch_categorize(chunk)
+                ai_results.update(chunk_results)
+        except ImportError:
+            pass
+
     counterparty_cache: dict[str, int] = {}
     for txn, ct in zip(txns, canonical_list):
         narration = txn.narration or ""
@@ -319,25 +343,48 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
             if txn.debit_amount
             else ("credit" if txn.credit_amount else "unknown")
         )
+        
         txn.category = assign_category(narration, direction)
         cp_raw = extract_counterparty(narration)
+        
+        # Override with AI results
+        if narration.strip() in ai_results:
+            ai_data = ai_results[narration.strip()]
+            if ai_data.get("category") and ai_data["category"] != "uncategorized":
+                txn.category = ai_data["category"]
+            if ai_data.get("merchant_name") and ai_data["merchant_name"] != "UNKNOWN":
+                cp_raw = ai_data["merchant_name"]
+
+        # 1. Check for self-transfers
+        from app.categorization.counterparty_extractor import is_self_transfer
+        is_self = is_self_transfer(narration, stmt.account_holder)
+        if is_self:
+            cp_raw = "Self Transfer"
+            
         if cp_raw:
+            # 2. Normalize the counterparty name to prevent duplicates (e.g. AMZN vs AMAZON)
+            from app.categorization.merchant_normalizer import normalize_counterparty_name
+            cp_norm = normalize_counterparty_name(cp_raw)
+            
             existing = db.exec(
-                select(Counterparty).where(Counterparty.canonical_name == cp_raw)
+                select(Counterparty).where(Counterparty.canonical_name == cp_norm)
             ).first()
             if existing:
                 txn.counterparty_id = existing.id
+                if is_self and not existing.is_self_transfer:
+                    existing.is_self_transfer = True
             else:
                 cp = Counterparty(
-                    canonical_name=cp_raw,
+                    canonical_name=cp_norm,
                     raw_variants=[cp_raw],
                     first_seen_statement_id=statement_id,
+                    is_self_transfer=is_self
                 )
                 db.add(cp)
                 db.commit()
                 db.refresh(cp)
                 txn.counterparty_id = cp.id
-                counterparty_cache[cp_raw] = cp.id
+                counterparty_cache[cp_norm] = cp.id
 
     db.commit()
 
@@ -379,15 +426,29 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
     anomaly_score: float = 0.0
     anomaly_detail: dict[str, Any] | None = None
     try:
-        mad_flagged = compute_mad_anomaly(feature_values)
-
-        feature_matrix = pd.DataFrame([feature_values]).fillna(0).to_numpy()
+        # Construct feature matrix using past statements + current statement
+        past_evidences = db.exec(select(EvidenceBundleRecord)).all()
+        past_features_list = []
         feature_names = list(feature_values.keys())
+        for ev in past_evidences:
+            if ev.json_blob and isinstance(ev.json_blob, dict):
+                feats = ev.json_blob.get("features", [])
+                if feats:
+                    pf = {f["name"]: f.get("value", 0.0) for f in feats if f.get("value") is not None}
+                    row_vec = [pf.get(name, 0.0) for name in feature_names]
+                    past_features_list.append(row_vec)
+        
+        current_row_vec = [feature_values.get(name, 0.0) for name in feature_names]
+        matrix_data = past_features_list + [current_row_vec]
+        feature_matrix = pd.DataFrame(matrix_data).fillna(0).to_numpy()
+
+        mad_flagged = compute_mad_anomaly(feature_matrix, feature_names)
+
         iso_frac, top_iso, _ = compute_isolation_forest_anomaly(
             feature_matrix, feature_names
         )
 
-        anomaly_score = len(mad_flagged) / max(len(feature_values), 1)
+        anomaly_score = (len(mad_flagged) / max(len(feature_values), 1) + iso_frac) / 2.0
         anomaly_detail = {
             "isolation_forest_score": iso_frac,
             "top_contributing_features": top_iso,

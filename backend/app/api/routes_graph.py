@@ -11,7 +11,7 @@ from app.db.models import Statement, Transaction, Cycle, EvidenceBundleRecord, C
 from app.graph.graph_builder import build_transaction_graph, graph_to_json
 from app.graph.cycle_detector import detect_cycles
 from app.graph.centrality import compute_centrality_metrics
-from app.graph.multi_statement_merge import merge_graphs
+
 
 logger = logging.getLogger(__name__)
 
@@ -71,30 +71,36 @@ async def get_graph(statement_id: int, db: Session = Depends(get_session)):
     df = _transactions_to_df(txns)
     G = build_transaction_graph(df, subject_account_id=f"ACCT_{statement_id}", node_labels=node_labels)
     graph_data = graph_to_json(G)
-    cycles = detect_cycles(G)
     centrality = compute_centrality_metrics(G)
 
-    mule_row_ids_set = set()
-    mule_nodes_set = set()
-    for c in cycles:
-        for r_id in c.get("contributing_row_ids", []):
-            if r_id:
-                mule_row_ids_set.add(str(r_id))
-        for n in c.get("nodes", []):
-            if n:
-                mule_nodes_set.add(str(n))
-
+    # Use pre-computed cycles from cache — avoid re-running expensive cycle detection
     ev_rec = db.exec(
         select(EvidenceBundleRecord)
         .where(EvidenceBundleRecord.statement_id == statement_id)
         .order_by(EvidenceBundleRecord.created_ts.desc())
     ).first()
+
+    cycles: list[dict] = []
+    mule_row_ids_set: set[str] = set()
+    mule_nodes_set: set[str] = set()
+
     if ev_rec and ev_rec.json_blob:
+        cycles = ev_rec.json_blob.get("cycles_detected", [])
         for r in ev_rec.json_blob.get("triggered_rules", []):
             for r_id in r.get("contributing_row_ids", []):
                 if r_id:
                     mule_row_ids_set.add(str(r_id))
-        for c in ev_rec.json_blob.get("cycles_detected", []):
+        for c in cycles:
+            for r_id in c.get("contributing_row_ids", []):
+                if r_id:
+                    mule_row_ids_set.add(str(r_id))
+            for n in c.get("nodes", []):
+                if n:
+                    mule_nodes_set.add(str(n))
+    else:
+        # Fallback: run detection only if no cache exists yet
+        cycles = detect_cycles(G)
+        for c in cycles:
             for r_id in c.get("contributing_row_ids", []):
                 if r_id:
                     mule_row_ids_set.add(str(r_id))

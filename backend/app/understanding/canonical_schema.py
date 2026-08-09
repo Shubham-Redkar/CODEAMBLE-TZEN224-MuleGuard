@@ -5,11 +5,6 @@ from decimal import Decimal
 from pydantic import BaseModel, Field
 
 
-class RawRow(BaseModel):
-    cells: list[str]
-    row_index: int
-    source: str
-
 
 class CanonicalTransaction(BaseModel):
     row_id: str
@@ -25,9 +20,3 @@ class CanonicalTransaction(BaseModel):
     source_row_confidence: float = 1.0
 
 
-class DetectedColumn(BaseModel):
-    index: int
-    header_raw: str
-    mapped_field: Optional[str] = None
-    confidence: float = 0.0
-    sample_values: list[str] = []

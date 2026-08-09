@@ -41,18 +41,23 @@ export function DashboardPage() {
     Promise.all([
       api.getEvidence(effectiveId).catch(() => null),
       api.getTransactions(effectiveId).catch(() => ({ rows: [], total: 0 })),
-      api.getNarrative(effectiveId).catch(() => null),
     ])
-      .then(([evBundle, txns, narr]) => {
+      .then(([evBundle, txns]) => {
         if (!evBundle) {
           setNotFound(true);
         } else {
           setBundle(evBundle);
         }
         if (txns) setTransactions(txns as any);
-        if (narr) setNarrative(narr);
       })
       .finally(() => setLoading(false));
+
+    // Fetch the LLM narrative separately since it takes a long time
+    api.getNarrative(effectiveId)
+      .then((narr) => {
+        if (narr) setNarrative(narr);
+      })
+      .catch(() => null);
   }, [effectiveId]);
 
   if (loading) {
